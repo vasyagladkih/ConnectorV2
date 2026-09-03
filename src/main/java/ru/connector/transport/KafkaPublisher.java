@@ -9,12 +9,6 @@ import reactor.kafka.sender.SenderRecord;
 
 import java.nio.charset.StandardCharsets;
 
-/**
- * Единый (общий на все WS-потоки) отправитель сырых сообщений в Kafka.
- *
- * <p>Является «глупой трубой»: принимает уже готовый массив байтов (raw JSON с биржи)
- * и кладёт его в Kafka без какой-либо десериализации/нормализации содержимого.</p>
- */
 public class KafkaPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaPublisher.class);
@@ -27,13 +21,6 @@ public class KafkaPublisher {
         this.defaultTopic = defaultTopic;
     }
 
-    /**
-     * Fire-and-forget отправка в Kafka.
-     *
-     * @param topic  топик; если {@code null} — используется defaultTopic
-     * @param key    ключ партиционирования (raw bytes)
-     * @param value  сырые байты сообщения (raw JSON с биржи)
-     */
     public void publish(String topic, String key, byte[] value) {
         String targetTopic = topic != null && !topic.isBlank() ? topic : defaultTopic;
 
@@ -41,9 +28,7 @@ public class KafkaPublisher {
                 new ProducerRecord<>(targetTopic, key.getBytes(StandardCharsets.UTF_8), value);
 
         sender.send(Mono.just(SenderRecord.create(record, record.key())))
-                .doOnNext(result -> {
-                    // ack от брокера — здесь можно навесить метрики/логирование
-                })
+                .doOnNext(result -> {})
                 .doOnError(e -> log.error("Kafka send failed for topic={}, key={}", targetTopic, key, e))
                 .subscribe();
     }
