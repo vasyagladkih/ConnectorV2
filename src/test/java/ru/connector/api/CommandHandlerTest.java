@@ -28,11 +28,10 @@ class CommandHandlerTest {
     }
 
     @Test
-    void testValidCommandReturnsAccepted() {
+    void testSubscribeWithIdReturnsAcceptedAndId() {
         String jsonPayload = """
                 {
                     "exchange": "KUCOIN",
-                    "action": "SUBSCRIBE",
                     "market": "SPOT",
                     "symbol": "BTC-USDT",
                     "command": {
@@ -42,18 +41,91 @@ class CommandHandlerTest {
                 """;
 
         testClient.post()
-                .uri("/api/command")
+                .uri("/api/subscriptions")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(jsonPayload)
                 .exchange()
                 .expectStatus().isAccepted()
                 .expectBody()
-                .jsonPath("$.status").isEqualTo("ACCEPTED")
-                .jsonPath("$.action").isEqualTo("SUBSCRIBE")
+                .jsonPath("$.id").isNotEmpty()
+                .jsonPath("$.exchange").isEqualTo("KUCOIN")
+                .jsonPath("$.market").isEqualTo("SPOT")
                 .jsonPath("$.symbol").isEqualTo("BTC-USDT")
-                .jsonPath("$.exchange").isEqualTo("KUCOIN");
+                .jsonPath("$.status").doesNotExist();
 
         verify(mockKucoinManager, times(1)).subscribe(any());
+    }
+
+    @Test
+    void testUnsubscribeByIdReturnsNoContent() {
+        String jsonPayload = """
+                {
+                    "exchange": "KUCOIN",
+                    "market": "SPOT",
+                    "symbol": "ETH-USDT",
+                    "command": {
+                        "type": "trades"
+                    }
+                }
+                """;
+
+        Long subId = testClient.post()
+                .uri("/api/subscriptions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(jsonPayload)
+                .exchange()
+                .expectStatus().isAccepted()
+                .returnResult(Map.class)
+                .getResponseBody()
+                .map(m -> ((Number) m.get("id")).longValue())
+                .blockFirst();
+
+        testClient.delete()
+                .uri("/api/subscriptions/" + subId)
+                .exchange()
+                .expectStatus().isNoContent();
+
+        verify(mockKucoinManager, times(1)).unsubscribe(any());
+    }
+
+    @Test
+    void testUnsubscribeNonExistentIdReturnsNotFound() {
+        testClient.delete()
+                .uri("/api/subscriptions/999999")
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody()
+                .jsonPath("$.status").isEqualTo(404)
+                .jsonPath("$.message").isEqualTo("Subscription not found: 999999");
+    }
+
+    @Test
+    void testActiveSubscriptionsReturnsList() {
+        String jsonPayload = """
+                {
+                    "exchange": "KUCOIN",
+                    "market": "SPOT",
+                    "symbol": "SOL-USDT",
+                    "command": {
+                        "type": "trades"
+                    }
+                }
+                """;
+
+        testClient.post()
+                .uri("/api/subscriptions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(jsonPayload)
+                .exchange()
+                .expectStatus().isAccepted();
+
+        testClient.get()
+                .uri("/api/subscriptions")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$").isArray()
+                .jsonPath("$[0].symbol").isEqualTo("SOL-USDT");
     }
 
     @Test
@@ -61,7 +133,6 @@ class CommandHandlerTest {
         String jsonPayload = """
                 {
                     "exchange": "OKX",
-                    "action": "SUBSCRIBE",
                     "market": "SPOT",
                     "symbol": "BTC-USDT",
                     "command": {
@@ -71,7 +142,7 @@ class CommandHandlerTest {
                 """;
 
         testClient.post()
-                .uri("/api/command")
+                .uri("/api/subscriptions")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(jsonPayload)
                 .exchange()
@@ -90,7 +161,7 @@ class CommandHandlerTest {
                 """;
 
         testClient.post()
-                .uri("/api/command")
+                .uri("/api/subscriptions")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(invalidPayload)
                 .exchange()
@@ -106,7 +177,6 @@ class CommandHandlerTest {
         String invalidSymbolPayload = """
                 {
                     "exchange": "KUCOIN",
-                    "action": "SUBSCRIBE",
                     "market": "SPOT",
                     "symbol": "INVALID",
                     "command": {
@@ -116,7 +186,7 @@ class CommandHandlerTest {
                 """;
 
         testClient.post()
-                .uri("/api/command")
+                .uri("/api/subscriptions")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(invalidSymbolPayload)
                 .exchange()

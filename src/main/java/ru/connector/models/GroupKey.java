@@ -1,4 +1,4 @@
-package ru.connector.command;
+package ru.connector.models;
 
 import java.util.Objects;
 

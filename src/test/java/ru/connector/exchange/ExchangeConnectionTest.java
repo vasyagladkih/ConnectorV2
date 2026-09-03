@@ -8,25 +8,28 @@ import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.NettyDataBufferFactory;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.client.WebSocketClient;
-import ru.connector.command.*;
 import ru.connector.exchange.network.ExchangeConnection;
-import ru.connector.transport.KafkaPublisher;
+import ru.connector.kafka.KafkaRawDataPublisher;
+import ru.connector.models.Command;
+import ru.connector.models.MarketType;
+import ru.connector.models.SubscriptionKey;
+import ru.connector.models.Symbol;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
 
 class ExchangeConnectionTest {
 
     private WebSocketClient mockClient;
-    private KafkaPublisher mockPublisher;
+    private KafkaRawDataPublisher mockPublisher;
 
     @BeforeEach
     void setUp() {
         mockClient = mock(WebSocketClient.class);
-        mockPublisher = mock(KafkaPublisher.class);
+        mockPublisher = mock(KafkaRawDataPublisher.class);
     }
 
     @Test
@@ -103,5 +106,21 @@ class ExchangeConnectionTest {
         assertTrue(conn.isClosed());
 
         assertThrows(IllegalStateException.class, conn::start);
+    }
+
+    @Test
+    void testSendDelayMsConfigured() {
+        ExchangeConnection conn = new ExchangeConnection(
+                "TEST",
+                MarketType.SPOT,
+                "ws://localhost",
+                mockClient,
+                mockPublisher,
+                "TEST_TOPIC",
+                Duration.ofSeconds(10),
+                10,
+                75L
+        );
+        assertEquals(75L, conn.getSendDelayMs());
     }
 }

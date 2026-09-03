@@ -3,9 +3,9 @@ package ru.connector.exchange;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.socket.client.WebSocketClient;
-import ru.connector.command.*;
+import ru.connector.models.*;
 import ru.connector.exchange.network.ExchangeConnection;
-import ru.connector.transport.KafkaPublisher;
+import ru.connector.kafka.KafkaRawDataPublisher;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -18,14 +18,14 @@ import static org.mockito.Mockito.mock;
 class ConnectionGroupTest {
 
     private WebSocketClient mockClient;
-    private KafkaPublisher mockPublisher;
+    private KafkaRawDataPublisher mockPublisher;
     private AtomicInteger connectionCounter;
     private List<ExchangeConnection> createdConnections;
 
     @BeforeEach
     void setUp() {
         mockClient = mock(WebSocketClient.class);
-        mockPublisher = mock(KafkaPublisher.class);
+        mockPublisher = mock(KafkaRawDataPublisher.class);
         connectionCounter = new AtomicInteger(0);
         createdConnections = new ArrayList<>();
     }

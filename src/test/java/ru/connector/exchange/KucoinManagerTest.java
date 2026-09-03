@@ -5,9 +5,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.socket.client.WebSocketClient;
-import ru.connector.command.*;
-import ru.connector.exchange.impl.KucoinManager;
-import ru.connector.transport.KafkaPublisher;
+import ru.connector.api.dto.Request;
+import ru.connector.exchange.impl.kucoin.KucoinManager;
+import ru.connector.kafka.KafkaRawDataPublisher;
+import ru.connector.models.Command;
+import ru.connector.models.GroupKey;
+import ru.connector.models.MarketType;
+import ru.connector.models.Symbol;
+import ru.connector.models.Type;
 
 import java.time.Duration;
 
@@ -16,16 +21,14 @@ import static org.mockito.Mockito.mock;
 
 class KucoinManagerTest {
 
-    private WebSocketClient mockClient;
-    private KafkaPublisher mockPublisher;
     private KucoinManager kucoinManager;
     private ObjectMapper mapper;
 
     @BeforeEach
     void setUp() {
-        mockClient = mock(WebSocketClient.class);
-        mockPublisher = mock(KafkaPublisher.class);
-        kucoinManager = new KucoinManager(mockClient, mockPublisher, 2, Duration.ofMillis(500));
+        WebSocketClient mockClient = mock(WebSocketClient.class);
+        KafkaRawDataPublisher mockPublisher = mock(KafkaRawDataPublisher.class);
+        kucoinManager = new KucoinManager(mockClient, mockPublisher, 2, Duration.ofSeconds(60));
         mapper = new ObjectMapper();
     }
 
@@ -33,7 +36,6 @@ class KucoinManagerTest {
     void testDifferentGroupsDoNotShareConnections() {
         Request req1 = new Request(
                 "KUCOIN",
-                Action.SUBSCRIBE,
                 MarketType.SPOT,
                 Symbol.parse("BTC-USDT"),
                 new Command.Trades()
@@ -41,7 +43,6 @@ class KucoinManagerTest {
 
         Request req2 = new Request(
                 "KUCOIN",
-                Action.SUBSCRIBE,
                 MarketType.SPOT,
                 Symbol.parse("BTC-USDT"),
                 new Command.OrderBook(5)
@@ -49,7 +50,6 @@ class KucoinManagerTest {
 
         Request req3 = new Request(
                 "KUCOIN",
-                Action.SUBSCRIBE,
                 MarketType.FUTURES,
                 Symbol.parse("BTC-USDT"),
                 new Command.Trades()
@@ -87,7 +87,6 @@ class KucoinManagerTest {
     void testKucoinWireMessageTranslation() throws Exception {
         Request tradeReq = new Request(
                 "KUCOIN",
-                Action.SUBSCRIBE,
                 MarketType.SPOT,
                 Symbol.parse("BTC-USDT"),
                 new Command.Trades()
@@ -102,7 +101,6 @@ class KucoinManagerTest {
 
         Request tickerReq = new Request(
                 "KUCOIN",
-                Action.SUBSCRIBE,
                 MarketType.FUTURES,
                 Symbol.parse("BTC-USDT"),
                 new Command.BookTicker()
@@ -117,7 +115,6 @@ class KucoinManagerTest {
 
         Request obReq = new Request(
                 "KUCOIN",
-                Action.SUBSCRIBE,
                 MarketType.SPOT,
                 Symbol.parse("ETH-USDT"),
                 new Command.OrderBook(5)
@@ -137,7 +134,6 @@ class KucoinManagerTest {
     void testManagerShutdownClearsAllGroups() {
         Request req = new Request(
                 "KUCOIN",
-                Action.SUBSCRIBE,
                 MarketType.SPOT,
                 Symbol.parse("BTC-USDT"),
                 new Command.Trades()

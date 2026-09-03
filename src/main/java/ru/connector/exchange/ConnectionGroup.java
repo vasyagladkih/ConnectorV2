@@ -1,12 +1,10 @@
 package ru.connector.exchange;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import reactor.core.Disposable;
 import reactor.core.publisher.Mono;
-import ru.connector.command.GroupKey;
-import ru.connector.command.SubscriptionKey;
 import ru.connector.exchange.network.ExchangeConnection;
+import ru.connector.models.GroupKey;
+import ru.connector.models.SubscriptionKey;
 
 import java.time.Duration;
 import java.util.*;
@@ -15,7 +13,6 @@ import java.util.function.Supplier;
 
 public class ConnectionGroup {
 
-    private static final Logger log = LoggerFactory.getLogger(ConnectionGroup.class);
     public static final Duration DEFAULT_IDLE_TIMEOUT = Duration.ofSeconds(60);
 
     private final GroupKey groupKey;
@@ -42,9 +39,10 @@ public class ConnectionGroup {
         Objects.requireNonNull(payload, "Payload cannot be null");
 
         ExchangeConnection conn;
+        boolean shouldStart = false;
+
         synchronized (this) {
             if (assignments.containsKey(key)) {
-                log.debug("[{}] Subscription already active for {}, ignoring duplicate subscribe", groupKey, key);
                 return;
             }
 
@@ -64,21 +62,23 @@ public class ConnectionGroup {
                         timerTask.dispose();
                     }
                     it.remove();
-                    log.info("[{}] Reusing idle physical connection for subscription: {}", groupKey, key);
                 }
             }
 
             if (conn == null) {
                 conn = connectionFactory.get();
-                log.info("[{}] Creating new physical connection (capacity: {}) for {}",
-                        groupKey, conn.getMaxSubscriptions(), key);
-                conn.start();
+                shouldStart = true;
             }
 
+            conn.tryReserveSlot(key, payload);
             assignments.put(key, conn);
         }
 
-        conn.subscribe(key, payload);
+        if (shouldStart) {
+            conn.start();
+        }
+
+        conn.emitOutgoing(payload);
     }
 
     public void unsubscribe(SubscriptionKey key, String payload) {
@@ -88,7 +88,6 @@ public class ConnectionGroup {
         synchronized (this) {
             conn = assignments.remove(key);
             if (conn == null) {
-                log.debug("[{}] Subscription not found for {}, ignoring unsubscribe", groupKey, key);
                 return;
             }
 
@@ -102,12 +101,10 @@ public class ConnectionGroup {
 
     private void markIdle(ExchangeConnection conn) {
         if (idleTimeout.isZero() || idleTimeout.isNegative()) {
-            log.info("[{}] Immediate close for idle connection (timeout is zero)", groupKey);
             conn.shutdown();
             return;
         }
 
-        log.info("[{}] Physical connection became idle (0 subscriptions). Timeout: {}", groupKey, idleTimeout);
         Disposable timeoutTask = Mono.delay(idleTimeout)
                 .subscribe(_ -> closeIdleConnection(conn));
         idleConnections.put(conn, timeoutTask);
@@ -120,7 +117,6 @@ public class ConnectionGroup {
                 task.dispose();
             }
             if (conn.subscriptionCount() == 0 && !assignments.containsValue(conn)) {
-                log.info("[{}] Closing idle physical connection after timeout expiration", groupKey);
                 conn.shutdown();
             }
         }
@@ -169,6 +165,5 @@ public class ConnectionGroup {
 
         assignments.values().stream().distinct().forEach(ExchangeConnection::shutdown);
         assignments.clear();
-        log.info("[{}] ConnectionGroup shut down completely", groupKey);
     }
 }

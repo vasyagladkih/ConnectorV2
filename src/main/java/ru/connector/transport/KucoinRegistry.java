@@ -1,9 +1,9 @@
 package ru.connector.transport;
 
-import ru.connector.command.Action;
-import ru.connector.command.MarketType;
-import ru.connector.command.Symbol;
-import ru.connector.command.Request;
+import ru.connector.models.Action;
+import ru.connector.models.MarketType;
+import ru.connector.models.Symbol;
+import ru.connector.api.dto.Request;
 
 
 public class KucoinRegistry {
@@ -19,10 +19,10 @@ public class KucoinRegistry {
         return type == MarketType.SPOT ? "wss://x-push-spot.kucoin.com" : "wss://x-push-futures.kucoin.com";
     }
 
-    public static ru.connector.command.StreamKey generateKey(Request request) {
+    public static ru.connector.models.StreamKey generateKey(Request request) {
         String channel = getChannel(request.command());
         String symbolStr = getSymbol(request.symbol(), request.market());
-        return ru.connector.command.StreamKey.of(channel, request.market(), symbolStr);
+        return ru.connector.models.StreamKey.of(channel, request.market(), symbolStr);
     }
 
     public static String getAction(Action action) {
@@ -33,11 +33,11 @@ public class KucoinRegistry {
         return market == MarketType.SPOT ? "SPOT" : "FUTURES";
     }
 
-    public static String getChannel(ru.connector.command.Command command) {
+    public static String getChannel(ru.connector.models.Command command) {
         return switch (command) {
-            case ru.connector.command.Command.Trades _ -> "trade";
-            case ru.connector.command.Command.BookTicker _ -> "ticker";
-            case ru.connector.command.Command.OrderBook _ -> "obu";
+            case ru.connector.models.Command.Trades _ -> "trade";
+            case ru.connector.models.Command.BookTicker _ -> "ticker";
+            case ru.connector.models.Command.OrderBook _ -> "obu";
         };
     }
 

@@ -1,4 +1,4 @@
-package ru.connector.command;
+package ru.connector.models;
 
 public record StreamKey(
         String channel,

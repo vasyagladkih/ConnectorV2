@@ -1,4 +1,4 @@
-package ru.connector.api;
+package ru.connector.api.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 

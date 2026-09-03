@@ -1,4 +1,4 @@
-package ru.connector.command;
+package ru.connector.models;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 

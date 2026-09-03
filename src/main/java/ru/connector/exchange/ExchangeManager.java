@@ -1,6 +1,6 @@
 package ru.connector.exchange;
 
-import ru.connector.command.Request;
+import ru.connector.api.dto.Request;
 
 public interface ExchangeManager {
     void subscribe(Request request);

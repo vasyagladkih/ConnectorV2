@@ -9,11 +9,11 @@ import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.support.WebExchangeBindException;
-import ru.connector.command.Request;
-import ru.connector.exception.ConnectionCapacityException;
-import ru.connector.exception.ExchangeConnectionException;
-import ru.connector.exception.InvalidCommandException;
-import ru.connector.exception.NotFoundExchangeException;
+import ru.connector.api.dto.ErrorResponse;
+import ru.connector.exceptions.ConnectionCapacityException;
+import ru.connector.exceptions.ExchangeConnectionException;
+import ru.connector.exceptions.InvalidCommandException;
+import ru.connector.exceptions.NotFoundExchangeException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -80,7 +80,7 @@ class GlobalExceptionHandlerTest {
         bindingResult.addError(new FieldError("request", "symbol", "Symbol is required"));
 
         MethodParameter parameter = new MethodParameter(
-                CommandHandler.class.getMethod("handleCommand", Request.class), 0);
+                CommandHandler.class.getMethod("subscribe", reactor.core.publisher.Mono.class), 0);
         WebExchangeBindException ex = new WebExchangeBindException(parameter, bindingResult);
 
         ResponseEntity<ErrorResponse> response = handler.handleValidationErrors(ex, request);

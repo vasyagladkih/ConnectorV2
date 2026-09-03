@@ -1,3 +1,3 @@
-package ru.connector.command;
+package ru.connector.models;
 
 public enum MarketType {SPOT, FUTURES}

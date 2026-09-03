@@ -1,4 +1,4 @@
-package ru.connector.exception;
+package ru.connector.exceptions;
 
 public class InvalidCommandException extends ConnectorException {
     public InvalidCommandException(String message) {

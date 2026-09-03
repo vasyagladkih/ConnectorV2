@@ -1,4 +1,4 @@
-package ru.connector.exception;
+package ru.connector.exceptions;
 
 public abstract class ConnectorException extends RuntimeException {
     public ConnectorException(String message) {

@@ -1,4 +1,4 @@
-package ru.connector.exception;
+package ru.connector.exceptions;
 
 public class ExchangeConnectionException extends ConnectorException {
     public ExchangeConnectionException(String message) {
