@@ -8,7 +8,7 @@ import ru.connector.models.MarketType;
 import ru.connector.models.Symbol;
 import ru.connector.models.Type;
 
-public record Request(
+public record SubscriptionDto(
         @NotBlank(message = "Exchange must not be blank")
         String exchange,
 

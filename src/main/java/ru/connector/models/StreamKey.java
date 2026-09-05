@@ -1,11 +1,17 @@
 package ru.connector.models;
 
+import ru.connector.api.dto.SubscriptionDto;
+
 public record StreamKey(
-        String channel,
         MarketType market,
-        String symbol
+        Symbol symbol,
+        Type type
 ) {
-    public static StreamKey of(String channel, MarketType market, String symbol) {
-        return new StreamKey(channel, market, symbol);
+    public static StreamKey from(SubscriptionDto request) {
+        return new StreamKey(
+                request.market(),
+                request.symbol(),
+                request.type()
+        );
     }
 }

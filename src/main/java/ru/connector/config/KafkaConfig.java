@@ -1,16 +1,21 @@
 package ru.connector.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.errors.SerializationException;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
-import org.apache.kafka.common.serialization.StringSerializer;
+import org.apache.kafka.common.serialization.LongSerializer;
+import org.apache.kafka.common.serialization.Serializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.kafka.support.serializer.JsonSerializer;
+import org.springframework.kafka.config.TopicBuilder;
+import org.springframework.kafka.core.KafkaAdmin;
 import reactor.kafka.sender.KafkaSender;
 import reactor.kafka.sender.SenderOptions;
-import ru.connector.api.dto.Request;
+import ru.connector.api.dto.SubscriptionDto;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -31,6 +36,25 @@ public class KafkaConfig {
     @Value("${kafka.producer.batch-size:16384}")
     private String batchSize;
 
+    @Value("${kafka.topics.subscription-state:market.subscriptions}")
+    private String subscriptionTopic;
+
+    @Bean
+    public KafkaAdmin kafkaAdmin() {
+        Map<String, Object> configs = new HashMap<>();
+        configs.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        return new KafkaAdmin(configs);
+    }
+
+    @Bean
+    public NewTopic subscriptionStateTopic() {
+        return TopicBuilder.name(subscriptionTopic)
+                .partitions(3)
+                .replicas(1)
+                .compact()
+                .build();
+    }
+
     @Bean
     public KafkaSender<byte[], byte[]> kafkaSender() {
         Properties props = new Properties();
@@ -45,15 +69,25 @@ public class KafkaConfig {
     }
 
     @Bean
-    @SuppressWarnings("removal")
-    public KafkaSender<String, Request> subscriptionKafkaSender(ObjectMapper objectMapper) {
+    public KafkaSender<Long, SubscriptionDto> subscriptionKafkaSender(ObjectMapper objectMapper) {
         Map<String, Object> props = new HashMap<>();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put(ProducerConfig.ACKS_CONFIG, acks);
 
-        SenderOptions<String, Request> senderOptions = SenderOptions.<String, Request>create(props)
-                .withKeySerializer(new StringSerializer())
-                .withValueSerializer(new JsonSerializer<>(objectMapper));
+        Serializer<SubscriptionDto> valueSerializer = (_, data) -> {
+            if (data == null) {
+                return null;
+            }
+            try {
+                return objectMapper.writeValueAsBytes(data);
+            } catch (Exception e) {
+                throw new SerializationException("Error serializing SubscriptionDto to JSON", e);
+            }
+        };
+
+        SenderOptions<Long, SubscriptionDto> senderOptions = SenderOptions.<Long, SubscriptionDto>create(props)
+                .withKeySerializer(new LongSerializer())
+                .withValueSerializer(valueSerializer);
 
         return KafkaSender.create(senderOptions);
     }

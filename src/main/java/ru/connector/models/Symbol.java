@@ -11,16 +11,23 @@ public record Symbol(
 
     @JsonCreator
     public static Symbol parse(String value) {
-        if (value == null || value.isBlank()) {
+        if (value == null || value.isBlank())
             throw new IllegalArgumentException("Symbol cannot be null or empty");
-        }
 
-        String[] parts = value.split("[-_/]");
-        if (parts.length < 2) {
-            throw new IllegalArgumentException("Invalid symbol format: " + value + ". Expected format like BTC-USDT, BTC_USDT, or BTC/USDT");
-        }
+        String trimmed = value.trim();
+        String[] parts = trimmed.split("[-_/]");
+        if (parts.length >= 2)
+            return new Symbol(parts[0].toUpperCase(), parts[1].toUpperCase());
 
-        return new Symbol(parts[0].toUpperCase(), parts[1].toUpperCase());
+        String upper = trimmed.toUpperCase();
+        if (upper.endsWith("USDTM") && upper.length() > 5)
+            return new Symbol(upper.substring(0, upper.length() - 5), "USDTM");
+        if (upper.endsWith("USDM") && upper.length() > 4)
+            return new Symbol(upper.substring(0, upper.length() - 4), "USDM");
+        if (upper.endsWith("USDT") && upper.length() > 4)
+            return new Symbol(upper.substring(0, upper.length() - 4), "USDT");
+
+        throw new IllegalArgumentException("Invalid symbol format: " + value + ". Expected format like BTC-USDT, BTC_USDT, or BTC/USDT");
     }
 
     @Override

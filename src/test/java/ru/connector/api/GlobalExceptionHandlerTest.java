@@ -15,7 +15,9 @@ import ru.connector.exceptions.ExchangeConnectionException;
 import ru.connector.exceptions.InvalidCommandException;
 import ru.connector.exceptions.NotFoundExchangeException;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GlobalExceptionHandlerTest {
 
@@ -28,6 +30,10 @@ class GlobalExceptionHandlerTest {
         request = MockServerHttpRequest.post("/api/command").build();
     }
 
+    /**
+     * Что проверяет: Обработку исключения NotFoundExchangeException в REST-контроллере.
+     * Что ожидаем: HTTP 404 Not Found с сообщением о неподдерживаемой бирже.
+     */
     @Test
     void testHandleNotFoundExchange() {
         NotFoundExchangeException ex = new NotFoundExchangeException("Exchange not supported: BINANCE");
@@ -40,6 +46,10 @@ class GlobalExceptionHandlerTest {
         assertEquals("/api/command", response.getBody().path());
     }
 
+    /**
+     * Что проверяет: Обработку исключения InvalidCommandException.
+     * Что ожидаем: HTTP 400 Bad Request с описанием ошибки в параметрах команды.
+     */
     @Test
     void testHandleInvalidCommand() {
         InvalidCommandException ex = new InvalidCommandException("Invalid command parameter");
@@ -51,6 +61,10 @@ class GlobalExceptionHandlerTest {
         assertEquals("Invalid command parameter", response.getBody().message());
     }
 
+    /**
+     * Что проверяет: Обработку исключения ConnectionCapacityException (исчерпание лимита соединений/подписок).
+     * Что ожидаем: HTTP 503 Service Unavailable с сообщением "Connection pool full".
+     */
     @Test
     void testHandleCapacityException() {
         ConnectionCapacityException ex = new ConnectionCapacityException("Connection pool full");
@@ -62,6 +76,10 @@ class GlobalExceptionHandlerTest {
         assertEquals("Connection pool full", response.getBody().message());
     }
 
+    /**
+     * Что проверяет: Обработку сетевых сбоев подключения к бирже ExchangeConnectionException.
+     * Что ожидаем: HTTP 502 Bad Gateway с сообщением о сетевой ошибке шлюза.
+     */
     @Test
     void testHandleExchangeConnectionException() {
         ExchangeConnectionException ex = new ExchangeConnectionException("Connection timeout to WS gateway");
@@ -73,6 +91,10 @@ class GlobalExceptionHandlerTest {
         assertEquals("Connection timeout to WS gateway", response.getBody().message());
     }
 
+    /**
+     * Что проверяет: Форматирование ошибок валидации Spring WebExchangeBindException.
+     * Что ожидаем: HTTP 400 Bad Request, список details содержит сообщения обо всех нарушенных полях.
+     */
     @Test
     void testHandleValidationErrors() throws NoSuchMethodException {
         BeanPropertyBindingResult bindingResult = new BeanPropertyBindingResult(new Object(), "request");

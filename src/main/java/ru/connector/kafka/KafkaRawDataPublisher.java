@@ -12,6 +12,7 @@ import reactor.util.retry.Retry;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
+// TODO разобрать этот шлак
 @Component
 public class KafkaRawDataPublisher {
 
@@ -42,6 +43,16 @@ public class KafkaRawDataPublisher {
 
     public void publish(String key, byte[] value) {
         publish(null, key, value);
+    }
+
+    public void publish(String key, String value) {
+        if (value == null) return;
+        publish(null, key, value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public void publish(String topic, String key, String value) {
+        if (value == null) return;
+        publish(topic, key, value.getBytes(StandardCharsets.UTF_8));
     }
 
     public void close() {

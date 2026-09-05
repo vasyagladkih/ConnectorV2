@@ -10,4 +10,15 @@ public record SubscriptionResponse(
         MarketType market,
         Symbol symbol,
         Command command
-) {}
+) {
+
+    public static SubscriptionResponse toResponse(Long id, SubscriptionDto request) {
+        return new SubscriptionResponse(
+                id,
+                request.exchange(),
+                request.market(),
+                request.symbol(),
+                request.command()
+        );
+    }
+}

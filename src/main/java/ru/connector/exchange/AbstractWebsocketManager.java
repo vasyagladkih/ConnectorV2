@@ -1,82 +1,16 @@
 package ru.connector.exchange;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.web.reactive.socket.client.WebSocketClient;
+import ru.connector.api.dto.SubscriptionDto;
+import ru.connector.exchange.registry.SubscriptionsRegistry;
 import ru.connector.models.Action;
-import ru.connector.models.GroupKey;
-import ru.connector.api.dto.Request;
-import ru.connector.models.SubscriptionKey;
-import ru.connector.models.Type;
-import ru.connector.exchange.network.ExchangeConnection;
-import ru.connector.kafka.KafkaRawDataPublisher;
-
-import java.time.Duration;
-import java.util.Collections;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 public abstract class AbstractWebsocketManager implements ExchangeManager {
 
-    private static final Logger log = LoggerFactory.getLogger(AbstractWebsocketManager.class);
+    protected final SubscriptionsRegistry registry;
 
-    protected final WebSocketClient client;
-    protected final KafkaRawDataPublisher publisher;
-    protected final Duration defaultIdleTimeout;
-
-    protected final Map<GroupKey, ConnectionGroup> groups = new ConcurrentHashMap<>();
-
-    public AbstractWebsocketManager(WebSocketClient client, KafkaRawDataPublisher publisher) {
-        this(client, publisher, ConnectionGroup.DEFAULT_IDLE_TIMEOUT);
+    protected AbstractWebsocketManager(SubscriptionsRegistry registry) {
+        this.registry = registry;
     }
 
-    public AbstractWebsocketManager(WebSocketClient client, KafkaRawDataPublisher publisher, Duration defaultIdleTimeout) {
-        this.client = client;
-        this.publisher = publisher;
-        this.defaultIdleTimeout = defaultIdleTimeout;
-    }
-
-    public abstract String translate(Request request, Action action);
-
-    public String translate(Request request) {
-        return translate(request, Action.SUBSCRIBE);
-    }
-
-    protected abstract ExchangeConnection createConnection(GroupKey groupKey);
-
-    protected ConnectionGroup getOrCreateGroup(GroupKey groupKey) {
-        return groups.computeIfAbsent(groupKey, gk ->
-                new ConnectionGroup(gk, () -> createConnection(gk), defaultIdleTimeout));
-    }
-
-    @Override
-    public void subscribe(Request request) {
-        GroupKey groupKey = GroupKey.of(request.market(), Type.type(request.command()));
-        SubscriptionKey subKey = SubscriptionKey.from(request);
-        String payload = translate(request, Action.SUBSCRIBE);
-        ConnectionGroup g = getOrCreateGroup(groupKey);
-        g.subscribe(subKey, payload);
-    }
-
-    @Override
-    public void unsubscribe(Request request) {
-        GroupKey groupKey = GroupKey.of(request.market(), Type.type(request.command()));
-        SubscriptionKey subKey = SubscriptionKey.from(request);
-        ConnectionGroup group = groups.get(groupKey);
-        if (group != null) {
-            String payload = translate(request, Action.UNSUBSCRIBE);
-            group.unsubscribe(subKey, payload);
-        }
-    }
-
-    @Override
-    public void shutdown() {
-        log.info("Shutting down AbstractWebsocketManager: closing {} connection groups", groups.size());
-        groups.values().forEach(ConnectionGroup::shutdown);
-        groups.clear();
-    }
-
-    public Map<GroupKey, ConnectionGroup> getGroups() {
-        return Collections.unmodifiableMap(groups);
-    }
+    public abstract String translate(SubscriptionDto request, Action action);
 }

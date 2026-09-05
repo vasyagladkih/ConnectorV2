@@ -1,131 +1,92 @@
 package ru.connector.service;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import ru.connector.api.dto.Request;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
+import ru.connector.api.dto.SubscriptionDto;
 import ru.connector.api.dto.SubscriptionResponse;
 import ru.connector.exceptions.NotFoundExchangeException;
 import ru.connector.exceptions.SubscriptionNotFoundException;
 import ru.connector.exchange.ExchangeManager;
 import ru.connector.kafka.KafkaSubscriptionPublisher;
-import ru.connector.models.ClientSubscription;
-import ru.connector.models.SubscriptionKey;
+import ru.connector.models.StreamKey;
 
-import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+
+import static ru.connector.api.dto.SubscriptionResponse.toResponse;
 
 @Service
 public class ExchangeService {
 
+    private final KafkaSubscriptionPublisher publisher;
     private final Map<String, ExchangeManager> managers;
-    private final KafkaSubscriptionPublisher subscriptionPublisher;
-
+    private final Scheduler singleScheduler = Schedulers.newSingle("sub-service");
     private final AtomicLong idSequence = new AtomicLong(0);
-    private final Map<Long, ClientSubscription> subscriptionsById = new ConcurrentHashMap<>();
-    private final Map<SubscriptionKey, Set<Long>> subscribersByKey = new ConcurrentHashMap<>();
 
-    public ExchangeService(Map<String, ExchangeManager> managers) {
-        this(managers, null);
-    }
-
-    @Autowired
     public ExchangeService(
-            Map<String, ExchangeManager> managers,
-            @Autowired(required = false) KafkaSubscriptionPublisher subscriptionPublisher) {
+            KafkaSubscriptionPublisher publisher,
+            Map<String, ExchangeManager> managers) {
+        this.publisher = publisher;
         this.managers = managers;
-        this.subscriptionPublisher = subscriptionPublisher;
     }
 
-    public Mono<SubscriptionResponse> subscribe(Mono<Request> requestMono) {
+    public Mono<SubscriptionResponse> subscribe(Mono<SubscriptionDto> requestMono) {
+        return requestMono
+                .publishOn(singleScheduler)
+                .flatMap(request -> {
+                    ExchangeManager manager = Optional.ofNullable(managers.get(request.exchange().toUpperCase()))
+                            .orElseThrow(() -> new NotFoundExchangeException("Exchange not supported: " + request.exchange()));
 
-        return requestMono.flatMap(req -> {
-            ExchangeManager manager = Optional.ofNullable(managers.get(req.exchange().toUpperCase()))
-                    .orElseThrow(() -> new NotFoundExchangeException("Exchange not supported: " + req.exchange()));
+                    StreamKey key = StreamKey.from(request);
 
-            SubscriptionKey key = SubscriptionKey.of(req.market(), req.symbol(), req.command());
-            long id = idSequence.incrementAndGet();
-            ClientSubscription clientSub = new ClientSubscription(id, req.exchange(), key, req.command(), Instant.now());
-            subscriptionsById.put(id, clientSub);
+                    if (manager.exists(key)) {
+                        Long existingId = manager.findIdByStreamKey(key)
+                                .orElseThrow(() -> new IllegalStateException("StreamKey exists but id not found in manager"));
+                        return Mono.just(toResponse(existingId, request));
+                    }
 
-            AtomicBoolean isFirstSubscriber = new AtomicBoolean(false);
-            subscribersByKey.compute(key, (k, existingSet) -> {
-                if (existingSet == null || existingSet.isEmpty()) {
-                    isFirstSubscriber.set(true);
-                    Set<Long> set = ConcurrentHashMap.newKeySet();
-                    set.add(id);
-                    return set;
-                } else {
-                    existingSet.add(id);
-                    return existingSet;
-                }
-            });
+                    Long id = idSequence.incrementAndGet();
 
-            Mono<Void> physicalSubscribe = isFirstSubscriber.get()
-                    ? Mono.fromRunnable(() -> manager.subscribe(req))
-                    : Mono.empty();
-
-            Mono<Void> kafkaPublish = Optional.ofNullable(subscriptionPublisher)
-                    .map(p -> p.publish(id, req))
-                    .orElseGet(Mono::empty);
-
-            return physicalSubscribe
-                    .then(kafkaPublish)
-                    .thenReturn(new SubscriptionResponse(id, req.exchange(), req.market(), req.symbol(), req.command()));
-        });
+                    return publisher.publish(id, request)
+                            .then(Mono.defer(() -> manager.subscribe(id, request)
+                                    .thenReturn(toResponse(id, request))
+                                    .onErrorResume(error -> rollback(id, manager, error))));
+                });
     }
 
     public Mono<Void> unsubscribe(Long id) {
         return Mono.defer(() -> {
-            ClientSubscription clientSub = Optional.ofNullable(subscriptionsById.remove(id))
+            ExchangeManager manager = findManagerById(id)
                     .orElseThrow(() -> new SubscriptionNotFoundException(id));
 
-            SubscriptionKey key = clientSub.key();
-            AtomicBoolean isLastSubscriber = new AtomicBoolean(false);
-
-            subscribersByKey.computeIfPresent(key, (k, existingSet) -> {
-                existingSet.remove(id);
-                if (existingSet.isEmpty()) {
-                    isLastSubscriber.set(true);
-                    return null;
-                }
-                return existingSet;
-            });
-
-            Mono<Void> physicalUnsubscribe = isLastSubscriber.get()
-                    ? Mono.fromRunnable(() -> {
-                        Optional.ofNullable(managers.get(clientSub.exchange().toUpperCase()))
-                                .ifPresent(mgr -> mgr.unsubscribe(new Request(
-                                        clientSub.exchange(),
-                                        key.market(),
-                                        key.symbol(),
-                                        clientSub.command()
-                                )));
-                    })
-                    : Mono.empty();
-
-            Mono<Void> kafkaPublish = Optional.ofNullable(subscriptionPublisher)
-                    .map(p -> p.publishTombstone(id))
-                    .orElseGet(Mono::empty);
-
-            return physicalUnsubscribe.then(kafkaPublish);
-        });
+            return publisher.publishTombstone(id)
+                    .then(manager.unsubscribe(id));
+        }).subscribeOn(singleScheduler);
     }
 
     public Flux<SubscriptionResponse> activeSubscriptions() {
-        return Flux.fromIterable(subscriptionsById.values())
-                .map(sub -> new SubscriptionResponse(
-                        sub.id(),
-                        sub.exchange(),
-                        sub.key().market(),
-                        sub.key().symbol(),
-                        sub.command()
-                ));
+        return Flux.defer(() -> Flux.fromIterable(managers.values())
+                .flatMapIterable(ExchangeManager::getAllActive)
+        ).subscribeOn(singleScheduler);
     }
+
+    private Optional<ExchangeManager> findManagerById(Long id) {
+        return managers.values().stream()
+                .filter(manager -> manager.contains(id))
+                .findFirst();
+    }
+
+    private Mono<SubscriptionResponse> rollback(Long id, ExchangeManager manager, Throwable error) {
+        return publisher.publishTombstone(id)
+                .then(manager.unsubscribe(id).onErrorResume(_ -> Mono.empty()))
+                .then(Mono.error(error));
+    }
+
+    @PreDestroy
+    public void shutdown() {singleScheduler.dispose();}
 }

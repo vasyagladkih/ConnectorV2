@@ -1,94 +1,129 @@
 package ru.connector.exchange.impl.kucoin;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.client.WebSocketClient;
-import ru.connector.api.dto.Request;
+import reactor.core.publisher.Mono;
+import ru.connector.api.dto.SubscriptionDto;
+import ru.connector.api.dto.SubscriptionResponse;
+import ru.connector.exceptions.SubscriptionNotFoundException;
 import ru.connector.exchange.AbstractWebsocketManager;
 import ru.connector.exchange.network.ExchangeConnection;
+import ru.connector.exchange.registry.SubscriptionsRegistry;
 import ru.connector.kafka.KafkaRawDataPublisher;
 import ru.connector.models.Action;
 import ru.connector.models.Command;
 import ru.connector.models.GroupKey;
-import ru.connector.models.MarketType;
-import ru.connector.transport.ExchangeTopics;
+import ru.connector.models.StreamKey;
 import ru.connector.transport.KucoinRegistry;
 
-import java.time.Duration;
+import java.net.URI;
+import java.util.List;
+import java.util.Optional;
 
 @Component("KUCOIN")
 public class KucoinManager extends AbstractWebsocketManager {
 
-    public static final int DEFAULT_MAX_SUBSCRIPTIONS = 100;
+    private static final Logger log = LoggerFactory.getLogger(KucoinManager.class);
 
-    private final ObjectMapper mapper = new ObjectMapper();
-    private final int maxSubscriptionsPerConnection;
-    private final long sendDelayMs;
+    private final WebSocketClient wsClient;
+    private final KafkaRawDataPublisher rawPublisher;
+    private final ObjectMapper objectMapper;
 
-    public KucoinManager(WebSocketClient client, KafkaRawDataPublisher publisher) {
-        this(client, publisher, DEFAULT_MAX_SUBSCRIPTIONS, Duration.ofSeconds(60), ExchangeConnection.DEFAULT_SEND_DELAY_MS);
+    public KucoinManager(
+            SubscriptionsRegistry registry,
+            WebSocketClient wsClient,
+            KafkaRawDataPublisher rawPublisher,
+            ObjectMapper objectMapper) {
+        super(registry);
+        this.wsClient = wsClient;
+        this.rawPublisher = rawPublisher;
+        this.objectMapper = objectMapper;
     }
 
-    public KucoinManager(WebSocketClient client,
-                         KafkaRawDataPublisher publisher,
-                         int maxSubscriptionsPerConnection,
-                         Duration idleTimeout) {
-        this(client, publisher, maxSubscriptionsPerConnection, idleTimeout, ExchangeConnection.DEFAULT_SEND_DELAY_MS);
-    }
-
-    @Autowired
-    public KucoinManager(WebSocketClient client,
-                         KafkaRawDataPublisher publisher,
-                         @Value("${exchange.rate-limit.delay-ms:50}") long sendDelayMs) {
-        this(client, publisher, DEFAULT_MAX_SUBSCRIPTIONS, Duration.ofSeconds(60), sendDelayMs);
-    }
-
-    public KucoinManager(WebSocketClient client,
-                         KafkaRawDataPublisher publisher,
-                         int maxSubscriptionsPerConnection,
-                         Duration idleTimeout,
-                         long sendDelayMs) {
-        super(client, publisher, idleTimeout);
-        this.maxSubscriptionsPerConnection = maxSubscriptionsPerConnection > 0
-                ? maxSubscriptionsPerConnection
-                : DEFAULT_MAX_SUBSCRIPTIONS;
-        this.sendDelayMs = sendDelayMs >= 0 ? sendDelayMs : ExchangeConnection.DEFAULT_SEND_DELAY_MS;
+    public SubscriptionsRegistry getRegistry() {
+        return registry;
     }
 
     @Override
-    protected ExchangeConnection createConnection(GroupKey groupKey) {
-        MarketType market = groupKey.market();
-        return new ExchangeConnection(
-                "KUCOIN",
-                market,
-                KucoinRegistry.getWsUrl(market),
-                client,
-                publisher,
-                new String(ExchangeTopics.KUCOIN_TRADE),
-                Duration.ofSeconds(20),
-                maxSubscriptionsPerConnection,
-                sendDelayMs
-        );
+    public boolean exists(StreamKey key) {
+        return registry.exists(key);
     }
 
     @Override
-    public String translate(Request request, Action action) {
+    public Optional<Long> findIdByStreamKey(StreamKey key) {
+        return registry.findIdByStreamKey(key);
+    }
+
+    @Override
+    public boolean contains(Long id) {
+        return registry.findRequestById(id).isPresent();
+    }
+
+    @Override
+    public Optional<SubscriptionDto> findRequestById(Long id) {
+        return registry.findRequestById(id);
+    }
+
+    @Override
+    public Mono<Void> subscribe(Long id, SubscriptionDto sub) {
+        return Mono.defer(() -> {
+            GroupKey groupKey = GroupKey.of(sub.market(), sub.type());
+            ExchangeConnection conn = registry.getOrCreateConnection(groupKey, () -> createConnection(groupKey));
+            String frame = translate(sub, Action.SUBSCRIBE);
+
+            conn.acquireSlot();
+            return conn.send(frame)
+                    .doOnSuccess(_ -> registry.register(id, sub, conn))
+                    .doOnError(_ -> conn.releaseSlot());
+        });
+    }
+
+    @Override
+    public Mono<Void> unsubscribe(Long id) {
+        return Mono.defer(() -> {
+            SubscriptionDto sub = registry.findRequestById(id)
+                    .orElseThrow(() -> new SubscriptionNotFoundException(id));
+            ExchangeConnection conn = registry.findConnectionById(id)
+                    .orElseThrow(() -> new IllegalStateException("Connection not found for subscription id: " + id));
+
+            String frame = translate(sub, Action.UNSUBSCRIBE);
+
+            return conn.send(frame)
+                    .doFinally(_ -> {
+                        conn.releaseSlot();
+                        registry.unregister(id);
+                    });
+        });
+    }
+
+    @Override
+    public List<SubscriptionResponse> getAllActive() {
+        return registry.getAllActive().stream()
+                .map(req -> new SubscriptionResponse(
+                        registry.findIdByStreamKey(StreamKey.from(req)).orElse(0L),
+                        req.exchange(),
+                        req.market(),
+                        req.symbol(),
+                        req.command()
+                ))
+                .toList();
+    }
+
+    @Override
+    public String translate(SubscriptionDto request, Action action) {
+        KucoinOutgoingMsg msg = resolveMsg(request, action);
         try {
-            KucoinOutgoingMsg msg = resolveMsg(request, action);
-            return mapper.writeValueAsString(msg);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to translate KuCoin request", e);
+            return objectMapper.writeValueAsString(msg);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize Kucoin message: " + msg, e);
         }
     }
 
-    @Override
-    public String translate(Request request) {
-        return translate(request, Action.SUBSCRIBE);
-    }
-
-    private KucoinOutgoingMsg resolveMsg(Request request, Action action) {
+    private KucoinOutgoingMsg resolveMsg(SubscriptionDto request, Action action) {
         String id = String.valueOf(System.currentTimeMillis());
         String actionStr = KucoinRegistry.getAction(action);
         String marketType = KucoinRegistry.getMarketType(request.market());
@@ -113,5 +148,21 @@ public class KucoinManager extends AbstractWebsocketManager {
                             0
                     );
         };
+    }
+
+    private ExchangeConnection createConnection(GroupKey groupKey) {
+        URI url = URI.create(KucoinRegistry.getWsUrl(groupKey.market()));
+        ExchangeConnection conn = new ExchangeConnection(
+                url,
+                wsClient,
+                rawJson -> log.info("[RAW-WS][KUCOIN:{}]: {}", groupKey.market(), rawJson)
+        );
+        conn.start();
+        return conn;
+    }
+
+    @Override
+    public void shutdown() {
+        registry.clear();
     }
 }

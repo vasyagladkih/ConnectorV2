@@ -1,10 +1,11 @@
 package ru.connector.transport;
 
+import ru.connector.api.dto.SubscriptionDto;
 import ru.connector.models.Action;
+import ru.connector.models.Command;
 import ru.connector.models.MarketType;
+import ru.connector.models.StreamKey;
 import ru.connector.models.Symbol;
-import ru.connector.api.dto.Request;
-
 
 public class KucoinRegistry {
 
@@ -19,30 +20,35 @@ public class KucoinRegistry {
         return type == MarketType.SPOT ? "wss://x-push-spot.kucoin.com" : "wss://x-push-futures.kucoin.com";
     }
 
-    public static ru.connector.models.StreamKey generateKey(Request request) {
-        String channel = getChannel(request.command());
-        String symbolStr = getSymbol(request.symbol(), request.market());
-        return ru.connector.models.StreamKey.of(channel, request.market(), symbolStr);
+    public static StreamKey generateKey(SubscriptionDto request) {
+        return StreamKey.from(request);
     }
 
     public static String getAction(Action action) {
-        return action == Action.SUBSCRIBE ? "SUBSCRIBE" : "UNSUBSCRIBE";
+        return action == Action.SUBSCRIBE ? "subscribe" : "unsubscribe";
     }
 
     public static String getMarketType(MarketType market) {
         return market == MarketType.SPOT ? "SPOT" : "FUTURES";
     }
 
-    public static String getChannel(ru.connector.models.Command command) {
+    public static String getChannel(Command command) {
         return switch (command) {
-            case ru.connector.models.Command.Trades _ -> "trade";
-            case ru.connector.models.Command.BookTicker _ -> "ticker";
-            case ru.connector.models.Command.OrderBook _ -> "obu";
+            case Command.Trades _ -> "trade";
+            case Command.BookTicker _ -> "ticker";
+            case Command.OrderBook _ -> "obu";
         };
     }
 
     public static String getSymbol(Symbol symbol, MarketType market) {
-        return market == MarketType.SPOT ?
-                symbol.base() + "-" + symbol.quote() : (symbol.base().equals("BTC") ? "XBT" : symbol.base()) + symbol.quote() + "M";
+        if (market == MarketType.SPOT) {
+            return symbol.base() + "-" + symbol.quote();
+        }
+        String base = symbol.base().equalsIgnoreCase("BTC") ? "XBT" : symbol.base();
+        String quote = symbol.quote();
+        String suffix = quote.endsWith("M") ? "" : "M";
+        return base + quote + suffix;
     }
+
+
 }

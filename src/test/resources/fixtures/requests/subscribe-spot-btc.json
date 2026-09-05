@@ -1,0 +1,8 @@
+{
+  "exchange": "KUCOIN",
+  "market": "SPOT",
+  "symbol": "BTC-USDT",
+  "command": {
+    "type": "trades"
+  }
+}
