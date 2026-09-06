@@ -2,8 +2,6 @@ package ru.connector.exchange.impl.kucoin;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.client.WebSocketClient;
 import reactor.core.publisher.Mono;
@@ -27,8 +25,6 @@ import java.util.Optional;
 @Component("KUCOIN")
 public class KucoinManager extends AbstractWebsocketManager {
 
-    private static final Logger log = LoggerFactory.getLogger(KucoinManager.class);
-
     private final WebSocketClient wsClient;
     private final KafkaRawDataPublisher rawPublisher;
     private final ObjectMapper objectMapper;
@@ -42,10 +38,6 @@ public class KucoinManager extends AbstractWebsocketManager {
         this.wsClient = wsClient;
         this.rawPublisher = rawPublisher;
         this.objectMapper = objectMapper;
-    }
-
-    public SubscriptionsRegistry getRegistry() {
-        return registry;
     }
 
     @Override
@@ -152,10 +144,11 @@ public class KucoinManager extends AbstractWebsocketManager {
 
     private ExchangeConnection createConnection(GroupKey groupKey) {
         URI url = URI.create(KucoinRegistry.getWsUrl(groupKey.market()));
+        String partitionKey = "KUCOIN:" + groupKey.market();
         ExchangeConnection conn = new ExchangeConnection(
                 url,
                 wsClient,
-                rawJson -> log.info("[RAW-WS][KUCOIN:{}]: {}", groupKey.market(), rawJson)
+                bytes -> rawPublisher.publish(partitionKey, bytes)
         );
         conn.start();
         return conn;

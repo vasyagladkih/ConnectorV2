@@ -10,7 +10,7 @@ public record SubscriptionResponse(
         @Schema(description = "Уникальный идентификатор подписки в шлюзе", example = "1")
         Long id,
 
-        @Schema(description = "Идентификатор криптобиржи", example = "KUCOIN")
+        @Schema(description = "Идентификатор биржи", example = "KUCOIN")
         String exchange,
 
         @Schema(description = "Тип рынка", example = "SPOT")
