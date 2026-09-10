@@ -34,7 +34,7 @@ Client ──(REST API)──► CommandHandler ──► ExchangeService ──
 | Topic | Policy | Key | Value | Назначение |
 |---|---|---|---|---|
 | `market.data.raw` | delete | `EXCHANGE:MARKET:SYMBOL` (String) | `byte[]` | Сырой поток котировок с биржи |
-| `market.subscriptions` | compact | `id` (Long) | JSON / Tombstone (`null`) | Реестр активных подписок для синхронизации и recovery |
+| `market.subscriptions` | compact | `id` (String) | JSON / Tombstone (`null`) | Реестр активных подписок для синхронизации и recovery |
 
 Ключ `EXCHANGE:MARKET:SYMBOL` гарантирует FIFO-порядок событий по инструменту внутри одной партиции без гонок при обработке консьюмерами.
 

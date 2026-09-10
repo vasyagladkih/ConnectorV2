@@ -1,27 +1,14 @@
 package ru.connector.transport;
 
-import ru.connector.api.dto.SubscriptionDto;
 import ru.connector.models.Action;
 import ru.connector.models.Command;
 import ru.connector.models.MarketType;
-import ru.connector.models.StreamKey;
 import ru.connector.models.Symbol;
 
 public class KucoinRegistry {
 
-    public static String getRestUrl(MarketType market) {
-        return switch (market) {
-            case SPOT -> "https://api.kucoin.com/api/v1/bullet-public";
-            case FUTURES -> "https://api-futures.kucoin.com/api/v1/bullet-public";
-        };
-    }
-
     public static String getWsUrl(MarketType type) {
         return type == MarketType.SPOT ? "wss://x-push-spot.kucoin.com" : "wss://x-push-futures.kucoin.com";
-    }
-
-    public static StreamKey generateKey(SubscriptionDto request) {
-        return StreamKey.from(request);
     }
 
     public static String getAction(Action action) {
@@ -46,9 +33,10 @@ public class KucoinRegistry {
         }
         String base = symbol.base().equalsIgnoreCase("BTC") ? "XBT" : symbol.base();
         String quote = symbol.quote();
+        if (quote.contains("-")) {
+            return base + "-" + quote;
+        }
         String suffix = quote.endsWith("M") ? "" : "M";
         return base + quote + suffix;
     }
-
-
 }

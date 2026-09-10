@@ -1,11 +1,10 @@
 package ru.connector.service;
 
-import jakarta.annotation.PreDestroy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Scheduler;
-import reactor.core.scheduler.Schedulers;
 import ru.connector.api.dto.SubscriptionDto;
 import ru.connector.api.dto.SubscriptionResponse;
 import ru.connector.exceptions.NotFoundExchangeException;
@@ -14,79 +13,74 @@ import ru.connector.exchange.ExchangeManager;
 import ru.connector.kafka.KafkaSubscriptionPublisher;
 import ru.connector.models.StreamKey;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicLong;
-
-import static ru.connector.api.dto.SubscriptionResponse.toResponse;
 
 @Service
 public class ExchangeService {
 
+    private static final Logger log = LoggerFactory.getLogger(ExchangeService.class);
+
     private final KafkaSubscriptionPublisher publisher;
     private final Map<String, ExchangeManager> managers;
-    private final Scheduler singleScheduler = Schedulers.newSingle("sub-service");
-    private final AtomicLong idSequence = new AtomicLong(0);
 
-    public ExchangeService(
-            KafkaSubscriptionPublisher publisher,
-            Map<String, ExchangeManager> managers) {
+    public ExchangeService(KafkaSubscriptionPublisher publisher, Map<String, ExchangeManager> managers) {
         this.publisher = publisher;
         this.managers = managers;
     }
 
     public Mono<SubscriptionResponse> subscribe(Mono<SubscriptionDto> requestMono) {
-        return requestMono
-                .publishOn(singleScheduler)
-                .flatMap(request -> {
-                    ExchangeManager manager = Optional.ofNullable(managers.get(request.exchange().toUpperCase()))
-                            .orElseThrow(() -> new NotFoundExchangeException("Exchange not supported: " + request.exchange()));
+        return requestMono.flatMap(request -> {
+            ExchangeManager manager = getManager(request.exchange());
+            StreamKey key = StreamKey.from(request);
+            String topicKey = key.toTopicKey(request.exchange());
 
-                    StreamKey key = StreamKey.from(request);
+            if (!manager.tryReserve(key, request)) {
+                return Mono.just(SubscriptionResponse.toResponse(request));
+            }
 
-                    if (manager.exists(key)) {
-                        Long existingId = manager.findIdByStreamKey(key)
-                                .orElseThrow(() -> new IllegalStateException("StreamKey exists but id not found in manager"));
-                        return Mono.just(toResponse(existingId, request));
-                    }
-
-                    Long id = idSequence.incrementAndGet();
-
-                    return publisher.publish(id, request)
-                            .then(Mono.defer(() -> manager.subscribe(id, request)
-                                    .thenReturn(toResponse(id, request))
-                                    .onErrorResume(error -> rollback(id, manager, error))));
-                });
+            return publisher.publish(topicKey, request)
+                    .then(Mono.defer(() -> manager.subscribe(key, request)))
+                    .thenReturn(SubscriptionResponse.toResponse(request))
+                    .onErrorResume(error -> rollback(topicKey, key, manager, error));
+        });
     }
 
-    public Mono<Void> unsubscribe(Long id) {
+    public Mono<Void> unsubscribe(SubscriptionDto request) {
         return Mono.defer(() -> {
-            ExchangeManager manager = findManagerById(id)
-                    .orElseThrow(() -> new SubscriptionNotFoundException(id));
+            ExchangeManager manager = getManager(request.exchange());
+            StreamKey key = StreamKey.from(request);
+            String topicKey = key.toTopicKey(request.exchange());
 
-            return publisher.publishTombstone(id)
-                    .then(manager.unsubscribe(id));
-        }).subscribeOn(singleScheduler);
+            if (!manager.exists(key)) {
+                return Mono.error(new SubscriptionNotFoundException("Subscription not found for stream: " + key));
+            }
+
+            return publisher.publishTombstone(topicKey)
+                    .then(Mono.defer(() -> manager.unsubscribe(key)));
+        });
     }
 
     public Flux<SubscriptionResponse> activeSubscriptions() {
         return Flux.defer(() -> Flux.fromIterable(managers.values())
                 .flatMapIterable(ExchangeManager::getAllActive)
-        ).subscribeOn(singleScheduler);
+        );
     }
 
-    private Optional<ExchangeManager> findManagerById(Long id) {
-        return managers.values().stream()
-                .filter(manager -> manager.contains(id))
-                .findFirst();
+    private ExchangeManager getManager(String exchange) {
+        return Optional.ofNullable(managers.get(exchange.toUpperCase()))
+                .orElseThrow(() -> new NotFoundExchangeException("Exchange not supported: " + exchange));
     }
 
-    private Mono<SubscriptionResponse> rollback(Long id, ExchangeManager manager, Throwable error) {
-        return publisher.publishTombstone(id)
-                .then(manager.unsubscribe(id).onErrorResume(_ -> Mono.empty()))
+    private Mono<SubscriptionResponse> rollback(String topicKey, StreamKey key, ExchangeManager manager, Throwable error) {
+        log.error("Failed to process subscription for stream [{}]: {}", key, error.getMessage(), error);
+        manager.rollback(key);
+        return publisher.publishTombstone(topicKey)
                 .then(Mono.error(error));
     }
 
-    @PreDestroy
-    public void shutdown() {singleScheduler.dispose();}
+    public void shutdown() {
+        managers.values().forEach(ExchangeManager::shutdown);
+    }
 }

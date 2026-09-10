@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 import jakarta.validation.constraints.NotBlank;
 
+import java.util.Arrays;
+
 public record Symbol(
         @NotBlank(message = "Base asset cannot be blank") String base,
         @NotBlank(message = "Quote asset cannot be blank") String quote
@@ -16,8 +18,13 @@ public record Symbol(
 
         String trimmed = value.trim();
         String[] parts = trimmed.split("[-_/]");
-        if (parts.length >= 2)
+        if (parts.length == 2) {
             return new Symbol(parts[0].toUpperCase(), parts[1].toUpperCase());
+        }
+        if (parts.length > 2) {
+            String rest = String.join("-", Arrays.copyOfRange(parts, 1, parts.length)).toUpperCase();
+            return new Symbol(parts[0].toUpperCase(), rest);
+        }
 
         String upper = trimmed.toUpperCase();
         if (upper.endsWith("USDTM") && upper.length() > 5)

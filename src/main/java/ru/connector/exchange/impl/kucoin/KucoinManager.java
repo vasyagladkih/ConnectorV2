@@ -1,7 +1,5 @@
 package ru.connector.exchange.impl.kucoin;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.client.WebSocketClient;
 import reactor.core.publisher.Mono;
@@ -17,8 +15,11 @@ import ru.connector.models.Command;
 import ru.connector.models.GroupKey;
 import ru.connector.models.StreamKey;
 import ru.connector.transport.KucoinRegistry;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,17 +28,22 @@ public class KucoinManager extends AbstractWebsocketManager {
 
     private final WebSocketClient wsClient;
     private final KafkaRawDataPublisher rawPublisher;
-    private final ObjectMapper objectMapper;
+    private final JsonMapper jsonMapper;
 
     public KucoinManager(
             SubscriptionsRegistry registry,
             WebSocketClient wsClient,
             KafkaRawDataPublisher rawPublisher,
-            ObjectMapper objectMapper) {
+            JsonMapper jsonMapper) {
         super(registry);
         this.wsClient = wsClient;
         this.rawPublisher = rawPublisher;
-        this.objectMapper = objectMapper;
+        this.jsonMapper = jsonMapper;
+    }
+
+    @Override
+    public boolean tryReserve(StreamKey key, SubscriptionDto request) {
+        return registry.tryReserve(key, request);
     }
 
     @Override
@@ -46,62 +52,58 @@ public class KucoinManager extends AbstractWebsocketManager {
     }
 
     @Override
-    public Optional<Long> findIdByStreamKey(StreamKey key) {
-        return registry.findIdByStreamKey(key);
+    public void rollback(StreamKey key) {
+        registry.rollback(key);
     }
 
     @Override
-    public boolean contains(Long id) {
-        return registry.findRequestById(id).isPresent();
+    public Mono<Void> subscribe(StreamKey key, SubscriptionDto sub) {
+        GroupKey groupKey = GroupKey.of(sub.market(), sub.type());
+        ExchangeConnection conn = registry.getOrCreateConnection(groupKey, () -> createConnection(groupKey));
+        String frame = translate(sub, Action.SUBSCRIBE);
+
+        conn.acquireSlot(key);
+        return conn.send(frame)
+                .doOnSuccess(_ -> registry.activate(key, conn))
+                .doOnError(_ -> {
+                    conn.releaseSlot(key);
+                    registry.rollback(key);
+                })
+                .doOnCancel(() -> {
+                    conn.releaseSlot(key);
+                    registry.rollback(key);
+                });
     }
 
     @Override
-    public Optional<SubscriptionDto> findRequestById(Long id) {
-        return registry.findRequestById(id);
-    }
+    public Mono<Void> unsubscribe(StreamKey key) {
+        Optional<SubscriptionDto> subOpt = registry.findRequestByKey(key);
+        if (subOpt.isEmpty()) {
+            return Mono.error(new SubscriptionNotFoundException("Subscription not found for stream: " + key));
+        }
+        SubscriptionDto sub = subOpt.get();
 
-    @Override
-    public Mono<Void> subscribe(Long id, SubscriptionDto sub) {
-        return Mono.defer(() -> {
-            GroupKey groupKey = GroupKey.of(sub.market(), sub.type());
-            ExchangeConnection conn = registry.getOrCreateConnection(groupKey, () -> createConnection(groupKey));
-            String frame = translate(sub, Action.SUBSCRIBE);
+        Optional<ExchangeConnection> connOpt = registry.findConnectionByKey(key);
+        if (connOpt.isEmpty()) {
+            registry.rollback(key);
+            return Mono.empty();
+        }
 
-            conn.acquireSlot();
-            return conn.send(frame)
-                    .doOnSuccess(_ -> registry.register(id, sub, conn))
-                    .doOnError(_ -> conn.releaseSlot());
-        });
-    }
+        ExchangeConnection conn = connOpt.get();
+        String frame = translate(sub, Action.UNSUBSCRIBE);
 
-    @Override
-    public Mono<Void> unsubscribe(Long id) {
-        return Mono.defer(() -> {
-            SubscriptionDto sub = registry.findRequestById(id)
-                    .orElseThrow(() -> new SubscriptionNotFoundException(id));
-            ExchangeConnection conn = registry.findConnectionById(id)
-                    .orElseThrow(() -> new IllegalStateException("Connection not found for subscription id: " + id));
-
-            String frame = translate(sub, Action.UNSUBSCRIBE);
-
-            return conn.send(frame)
-                    .doFinally(_ -> {
-                        conn.releaseSlot();
-                        registry.unregister(id);
-                    });
-        });
+        return conn.send(frame)
+                .doFinally(_ -> {
+                    if (registry.unregister(key)) {
+                        conn.releaseSlot(key);
+                    }
+                });
     }
 
     @Override
     public List<SubscriptionResponse> getAllActive() {
         return registry.getAllActive().stream()
-                .map(req -> new SubscriptionResponse(
-                        registry.findIdByStreamKey(StreamKey.from(req)).orElse(0L),
-                        req.exchange(),
-                        req.market(),
-                        req.symbol(),
-                        req.command()
-                ))
+                .map(SubscriptionResponse::toResponse)
                 .toList();
     }
 
@@ -109,8 +111,8 @@ public class KucoinManager extends AbstractWebsocketManager {
     public String translate(SubscriptionDto request, Action action) {
         KucoinOutgoingMsg msg = resolveMsg(request, action);
         try {
-            return objectMapper.writeValueAsString(msg);
-        } catch (JsonProcessingException e) {
+            return jsonMapper.writeValueAsString(msg);
+        } catch (JacksonException e) {
             throw new RuntimeException("Failed to serialize Kucoin message: " + msg, e);
         }
     }
@@ -144,14 +146,38 @@ public class KucoinManager extends AbstractWebsocketManager {
 
     private ExchangeConnection createConnection(GroupKey groupKey) {
         URI url = URI.create(KucoinRegistry.getWsUrl(groupKey.market()));
-        String partitionKey = "KUCOIN:" + groupKey.market();
         ExchangeConnection conn = new ExchangeConnection(
                 url,
                 wsClient,
-                bytes -> rawPublisher.publish(partitionKey, bytes)
+                bytes -> {
+                    String symbolStr = groupKey.symbol() != null ? groupKey.symbol().toString() : extractSymbolFromPayload(bytes);
+                    String partitionKey = "KUCOIN:" + groupKey.market() + (symbolStr != null ? ":" + symbolStr : "");
+                    rawPublisher.publish(partitionKey, bytes);
+                }
         );
         conn.start();
         return conn;
+    }
+
+    private String extractSymbolFromPayload(byte[] bytes) {
+        String text = new String(bytes, StandardCharsets.UTF_8);
+        int sIdx = text.indexOf("\"s\":\"");
+        if (sIdx != -1) {
+            int start = sIdx + 5;
+            int end = text.indexOf("\"", start);
+            if (end != -1) {
+                return text.substring(start, end);
+            }
+        }
+        int tIdx = text.indexOf("\"T\":\"trade.");
+        if (tIdx != -1) {
+            int start = tIdx + 11;
+            int end = text.indexOf("\"", start);
+            if (end != -1) {
+                return text.substring(start, end);
+            }
+        }
+        return null;
     }
 
     @Override

@@ -6,15 +6,13 @@ import ru.connector.api.dto.SubscriptionResponse;
 import ru.connector.models.StreamKey;
 
 import java.util.List;
-import java.util.Optional;
 
 public interface ExchangeManager {
+    boolean tryReserve(StreamKey key, SubscriptionDto request);
+    Mono<Void> subscribe(StreamKey key, SubscriptionDto request);
+    Mono<Void> unsubscribe(StreamKey key);
+    void rollback(StreamKey key);
     boolean exists(StreamKey key);
-    Optional<Long> findIdByStreamKey(StreamKey key);
-    boolean contains(Long id);
-    Optional<SubscriptionDto> findRequestById(Long id);
-    Mono<Void> subscribe(Long id, SubscriptionDto request);
-    Mono<Void> unsubscribe(Long id);
     List<SubscriptionResponse> getAllActive();
     void shutdown();
 }

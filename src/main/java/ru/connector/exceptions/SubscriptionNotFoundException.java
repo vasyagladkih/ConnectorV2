@@ -10,4 +10,8 @@ public class SubscriptionNotFoundException extends ConnectorException {
     public SubscriptionNotFoundException(Long id) {
         super("Subscription not found: " + id);
     }
+
+    public SubscriptionNotFoundException(String message) {
+        super(message);
+    }
 }

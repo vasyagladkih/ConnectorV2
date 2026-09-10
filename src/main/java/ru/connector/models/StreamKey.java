@@ -14,4 +14,8 @@ public record StreamKey(
                 request.type()
         );
     }
+
+    public String toTopicKey(String exchange) {
+        return exchange.toUpperCase() + ":" + market + ":" + symbol + ":" + type;
+    }
 }

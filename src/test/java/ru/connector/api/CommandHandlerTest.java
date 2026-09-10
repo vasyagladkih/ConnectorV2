@@ -1,6 +1,6 @@
 package ru.connector.api;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -9,6 +9,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.reactivestreams.Publisher;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.reactive.function.BodyInserters;
@@ -45,6 +46,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CommandHandlerTest {
 
+    private static final String TOPIC_KEY = "KUCOIN:SPOT:BTC-USDT:TRADES";
+
     private WebTestClient client;
 
     @Mock
@@ -68,6 +71,7 @@ class CommandHandlerTest {
             WebSocketSession session = mock(WebSocketSession.class);
 
             when(session.receive()).thenReturn(Flux.never());
+            when(session.close()).thenReturn(Mono.empty());
             when(session.send(any())).thenAnswer(sendInv -> {
                 Publisher<WebSocketMessage> publisher = sendInv.getArgument(0);
                 return Flux.from(publisher)
@@ -83,13 +87,13 @@ class CommandHandlerTest {
             return handler.handle(session);
         });
 
-        lenient().when(mockKafkaPublisher.publish(any(), any())).thenReturn(Mono.empty());
-        lenient().when(mockKafkaPublisher.publishTombstone(any())).thenReturn(Mono.empty());
+        lenient().when(mockKafkaPublisher.publish(anyString(), any())).thenReturn(Mono.empty());
+        lenient().when(mockKafkaPublisher.publishTombstone(anyString())).thenReturn(Mono.empty());
 
         // Сборка реального стека приложения
         SubscriptionsRegistry registry = new SubscriptionsRegistry();
-        ObjectMapper objectMapper = new ObjectMapper();
-        KucoinManager kucoinManager = new KucoinManager(registry, mockWsClient, mockRawPublisher, objectMapper);
+        JsonMapper jsonMapper = JsonMapper.builder().build();
+        KucoinManager kucoinManager = new KucoinManager(registry, mockWsClient, mockRawPublisher, jsonMapper);
         ExchangeService exchangeService = new ExchangeService(mockKafkaPublisher, Map.of("KUCOIN", kucoinManager));
 
         client = WebTestClient.bindToController(new CommandHandler(exchangeService))
@@ -100,7 +104,7 @@ class CommandHandlerTest {
     /**
      * Что проверяем: Успешное создание подписки на сделки BTC-USDT.
      * Что ждем:
-     *   - HTTP 202 Accepted и JSON с ID=1;
+     *   - HTTP 202 Accepted и JSON с данными подписки;
      *   - Отправку события в Kafka (publish);
      *   - Отправку кадра subscribe в сокет биржи;
      *   - Появление записи в GET /api/subscriptions.
@@ -111,46 +115,48 @@ class CommandHandlerTest {
         postFixture("fixtures/requests/subscribe-spot-btc.json")
                 .expectStatus().isAccepted()
                 .expectBody()
-                .jsonPath("$.id").isEqualTo(1)
                 .jsonPath("$.exchange").isEqualTo("KUCOIN")
                 .jsonPath("$.market").isEqualTo("SPOT")
                 .jsonPath("$.symbol").isEqualTo("BTC-USDT");
 
-        verify(mockKafkaPublisher, times(1)).publish(eq(1L), any());
+        verify(mockKafkaPublisher, times(1)).publish(eq(TOPIC_KEY), any());
         assertWsFrameSent("subscribe");
 
         getActiveSubscriptions()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.length()").isEqualTo(1)
-                .jsonPath("$[0].id").isEqualTo(1);
+                .jsonPath("$[0].exchange").isEqualTo("KUCOIN")
+                .jsonPath("$[0].symbol").isEqualTo("BTC-USDT");
     }
 
     /**
      * Что проверяем: Повторный запрос той же подписки (идемпотентность).
      * Что ждем:
-     *   - HTTP 202 с тем же ID=1;
+     *   - HTTP 202 с тем же результатом;
      *   - БЕЗ повторной отправки фрейма в сокет и БЕЗ дублирования в Kafka.
      */
     @Test
-    @DisplayName("POST /api/subscriptions: Идемпотентность — повторный запрос возвращает тот же ID")
+    @DisplayName("POST /api/subscriptions: Идемпотентность — повторный запрос возвращает стрим")
     void shouldBeIdempotentOnDuplicateSubscription() {
         // Первый вызов
         postFixture("fixtures/requests/subscribe-spot-btc.json")
                 .expectStatus().isAccepted()
-                .expectBody().jsonPath("$.id").isEqualTo(1);
+                .expectBody()
+                .jsonPath("$.symbol").isEqualTo("BTC-USDT");
 
         // Повторный вызов
         postFixture("fixtures/requests/subscribe-spot-btc.json")
                 .expectStatus().isAccepted()
-                .expectBody().jsonPath("$.id").isEqualTo(1);
+                .expectBody()
+                .jsonPath("$.symbol").isEqualTo("BTC-USDT");
 
-        verify(mockKafkaPublisher, times(1)).publish(eq(1L), any());
+        verify(mockKafkaPublisher, times(1)).publish(eq(TOPIC_KEY), any());
         assertEquals(1, sentWsFrames.size(), "WebSocket frame must not be duplicated");
     }
 
     /**
-     * Что проверяем: Отписку от существующего потока по ID.
+     * Что проверяем: Отписку от существующего потока.
      * Что ждем:
      *   - HTTP 204 No Content;
      *   - Отправку кадра unsubscribe в биржевой сокет;
@@ -158,17 +164,17 @@ class CommandHandlerTest {
      *   - Удаление из списка активных подписок.
      */
     @Test
-    @DisplayName("DELETE /api/subscriptions/{id}: Успешная отписка и очистка состояния")
+    @DisplayName("DELETE /api/subscriptions: Успешная отписка и очистка состояния")
     void shouldUnsubscribeSuccessfully() {
         // Создаем подписку
         postFixture("fixtures/requests/subscribe-spot-btc.json")
                 .expectStatus().isAccepted();
 
         // Отписываемся
-        deleteSubscription(1L)
+        deleteSubscription()
                 .expectStatus().isNoContent();
 
-        verify(mockKafkaPublisher, times(1)).publishTombstone(eq(1L));
+        verify(mockKafkaPublisher, times(1)).publishTombstone(eq(TOPIC_KEY));
         assertWsFrameSent("unsubscribe");
 
         getActiveSubscriptions()
@@ -177,17 +183,17 @@ class CommandHandlerTest {
     }
 
     /**
-     * Что проверяем: Попытку отписки от несуществующего идентификатора.
+     * Что проверяем: Попытку отписки от несуществующего потока.
      * Что ждем: HTTP 404 Not Found с сообщением об ошибке.
      */
     @Test
-    @DisplayName("DELETE /api/subscriptions/{id}: 404 Not Found для неизвестного ID")
-    void shouldReturnNotFoundOnUnknownSubscriptionId() {
-        deleteSubscription(999L)
+    @DisplayName("DELETE /api/subscriptions: 404 Not Found для несуществующей подписки")
+    void shouldReturnNotFoundOnUnknownSubscription() {
+        deleteSubscription()
                 .expectStatus().isNotFound()
                 .expectBody()
                 .jsonPath("$.status").isEqualTo(404)
-                .jsonPath("$.message").isEqualTo("Subscription not found: 999");
+                .jsonPath("$.message").isEqualTo("Subscription not found for stream: StreamKey[market=SPOT, symbol=BTC-USDT, type=TRADES]");
     }
 
     /**
@@ -249,7 +255,7 @@ class CommandHandlerTest {
                 .jsonPath("$.status").isEqualTo(502)
                 .jsonPath("$.error").isEqualTo("Bad Gateway");
 
-        verify(mockKafkaPublisher, times(1)).publishTombstone(eq(1L));
+        verify(mockKafkaPublisher, times(1)).publishTombstone(eq(TOPIC_KEY));
 
         getActiveSubscriptions()
                 .expectStatus().isOk()
@@ -268,9 +274,11 @@ class CommandHandlerTest {
                 .exchange();
     }
 
-    private WebTestClient.ResponseSpec deleteSubscription(long id) {
-        return client.delete()
-                .uri("/api/subscriptions/" + id)
+    private WebTestClient.ResponseSpec deleteSubscription() {
+        return client.method(HttpMethod.DELETE)
+                .uri("/api/subscriptions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(BodyInserters.fromResource(new ClassPathResource("fixtures/requests/subscribe-spot-btc.json")))
                 .exchange();
     }
 

@@ -1,6 +1,6 @@
 package ru.connector.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient;
@@ -11,8 +11,8 @@ import reactor.netty.http.client.HttpClient;
 public class ExchangeConfig {
 
     @Bean
-    public ObjectMapper objectMapper() {
-        return new ObjectMapper();
+    public JsonMapper jsonMapper() {
+        return JsonMapper.builder().build();
     }
 
     @Bean
