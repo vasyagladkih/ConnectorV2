@@ -32,6 +32,6 @@ public record ErrorResponse(
     }
 
     public static ErrorResponse of(int status, String error, String message, String path, List<String> details) {
-        return new ErrorResponse(Instant.now(), status, error, message, path, details);
+        return new ErrorResponse(Instant.now(), status, error, message, path, details != null ? List.copyOf(details) : List.of());
     }
 }

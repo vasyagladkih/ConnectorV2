@@ -9,6 +9,10 @@ import ru.connector.models.Symbol;
 
 public class KucoinRegistry {
 
+    private KucoinRegistry() {
+        // Utility class
+    }
+
     public static String getRestUrl(MarketType market) {
         return switch (market) {
             case SPOT -> "https://api.kucoin.com/api/v1/bullet-public";
@@ -49,6 +53,4 @@ public class KucoinRegistry {
         String suffix = quote.endsWith("M") ? "" : "M";
         return base + quote + suffix;
     }
-
-
 }

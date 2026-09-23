@@ -3,6 +3,9 @@ package ru.connector.models;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 import jakarta.validation.constraints.NotBlank;
+import org.jspecify.annotations.NonNull;
+
+import java.util.Locale;
 
 public record Symbol(
         @NotBlank(message = "Base asset cannot be blank") String base,
@@ -11,28 +14,40 @@ public record Symbol(
 
     @JsonCreator
     public static Symbol parse(String value) {
-        if (value == null || value.isBlank())
+        if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("Symbol cannot be null or empty");
+        }
 
         String trimmed = value.trim();
         String[] parts = trimmed.split("[-_/]");
-        if (parts.length >= 2)
-            return new Symbol(parts[0].toUpperCase(), parts[1].toUpperCase());
+        if (parts.length >= 2) {
+            if (parts[0].isBlank() || parts[1].isBlank()) {
+                throw new IllegalArgumentException("Base and quote assets cannot be blank: " + value);
+            }
+            return new Symbol(parts[0].toUpperCase(Locale.ROOT), parts[1].toUpperCase(Locale.ROOT));
+        }
 
-        String upper = trimmed.toUpperCase();
-        if (upper.endsWith("USDTM") && upper.length() > 5)
-            return new Symbol(upper.substring(0, upper.length() - 5), "USDTM");
-        if (upper.endsWith("USDM") && upper.length() > 4)
-            return new Symbol(upper.substring(0, upper.length() - 4), "USDM");
-        if (upper.endsWith("USDT") && upper.length() > 4)
-            return new Symbol(upper.substring(0, upper.length() - 4), "USDT");
+        String upper = trimmed.toUpperCase(Locale.ROOT);
+        int len = upper.length();
+        if (upper.endsWith("USDTM") && len > 5) {
+            return new Symbol(upper.substring(0, len - 5), "USDTM");
+        }
+        if (len > 4) {
+            String base = upper.substring(0, len - 4);
+            if (upper.endsWith("USDM")) {
+                return new Symbol(base, "USDM");
+            }
+            if (upper.endsWith("USDT")) {
+                return new Symbol(base, "USDT");
+            }
+        }
 
         throw new IllegalArgumentException("Invalid symbol format: " + value + ". Expected format like BTC-USDT, BTC_USDT, or BTC/USDT");
     }
 
     @Override
     @JsonValue
-    public String toString() {
+    public @NonNull String toString() {
         return base + "-" + quote;
     }
 }

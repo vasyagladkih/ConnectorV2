@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient;
 import org.springframework.web.reactive.socket.client.WebSocketClient;
 import reactor.netty.http.client.HttpClient;
+import reactor.netty.http.client.WebsocketClientSpec;
 
 @Configuration
 public class ExchangeConfig {
@@ -19,6 +20,9 @@ public class ExchangeConfig {
     public WebSocketClient webSocketClient() {
         HttpClient httpClient = HttpClient.create()
                 .compress(true);
-        return new ReactorNettyWebSocketClient(httpClient);
+        return new ReactorNettyWebSocketClient(
+                httpClient,
+                () -> WebsocketClientSpec.builder().maxFramePayloadLength(10 * 1024 * 1024)
+        );
     }
 }

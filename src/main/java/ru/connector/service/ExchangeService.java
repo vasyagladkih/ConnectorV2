@@ -39,7 +39,7 @@ public class ExchangeService {
         return requestMono
                 .publishOn(singleScheduler)
                 .flatMap(request -> {
-                    ExchangeManager manager = Optional.ofNullable(managers.get(request.exchange().toUpperCase()))
+                    ExchangeManager manager = Optional.ofNullable(managers.get(request.exchange().toUpperCase(java.util.Locale.ROOT)))
                             .orElseThrow(() -> new NotFoundExchangeException("Exchange not supported: " + request.exchange()));
 
                     StreamKey key = StreamKey.from(request);
@@ -83,7 +83,7 @@ public class ExchangeService {
 
     private Mono<SubscriptionResponse> rollback(Long id, ExchangeManager manager, Throwable error) {
         return publisher.publishTombstone(id)
-                .then(manager.unsubscribe(id).onErrorResume(_ -> Mono.empty()))
+                .then(manager.unsubscribe(id).onErrorResume(ignored -> Mono.empty()))
                 .then(Mono.error(error));
     }
 

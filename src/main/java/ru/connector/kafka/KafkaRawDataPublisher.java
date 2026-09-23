@@ -32,7 +32,7 @@ public class KafkaRawDataPublisher {
 
         kafkaTemplate.send(targetTopic, key, payload).whenComplete((_, ex) -> {
             if (ex != null) {
-                log.error("[KAFKA-RAW-ERROR] Failed to send message to topic={} key={}: {}", targetTopic, key, ex.getMessage(), ex);
+                log.error("[KAFKA-RAW-ERROR] Failed to send message to topic={} key={}", targetTopic, key, ex);
             }
         });
     }

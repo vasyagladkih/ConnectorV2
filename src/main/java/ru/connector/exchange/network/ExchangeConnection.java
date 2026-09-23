@@ -26,11 +26,10 @@ public class ExchangeConnection implements WebSocketHandler {
     private final Sinks.Many<String> outgoing = Sinks.many().multicast().onBackpressureBuffer(1024, false);
     private final Sinks.One<Void> connected = Sinks.one();
 
+    private final java.util.concurrent.atomic.AtomicInteger activeSlots = new java.util.concurrent.atomic.AtomicInteger(0);
     @Getter
-    private int activeSlots = 0;
-    @Getter
-    private boolean closed = false;
-    private boolean started = false;
+    private volatile boolean closed = false;
+    private volatile boolean started = false;
 
     public ExchangeConnection(URI url, WebSocketClient client, Consumer<byte[]> onMessage) {
         this.url = url;
@@ -77,17 +76,24 @@ public class ExchangeConnection implements WebSocketHandler {
         return connected.asMono().then(Mono.fromRunnable(() -> outgoing.tryEmitNext(frame)));
     }
 
+    @SuppressWarnings("unused")
+    public int getActiveSlots() {
+        return activeSlots.get();
+    }
+
     public boolean hasCapacity() {
-        return !closed && activeSlots < MAX_CAPACITY;
+        return !closed && activeSlots.get() < MAX_CAPACITY;
     }
 
     public void acquireSlot() {
-        activeSlots++;
+        activeSlots.incrementAndGet();
     }
 
+    @SuppressWarnings("unused")
     public void releaseSlot() {
-        if (activeSlots > 0) activeSlots--;
-        if (activeSlots <= 0) close();
+        if (activeSlots.decrementAndGet() <= 0) {
+            close();
+        }
     }
 
     public void close() {

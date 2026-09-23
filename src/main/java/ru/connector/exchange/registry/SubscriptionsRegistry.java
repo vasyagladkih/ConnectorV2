@@ -1,25 +1,27 @@
 package ru.connector.exchange.registry;
 
+import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 import ru.connector.api.dto.SubscriptionDto;
 import ru.connector.exchange.network.ExchangeConnection;
 import ru.connector.models.GroupKey;
 import ru.connector.models.StreamKey;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Supplier;
 
 @Component
+@Scope("prototype")
 public class SubscriptionsRegistry {
 
-    private final Map<Long, SubscriptionDto> idToRequest = new HashMap<>();
-    private final Map<StreamKey, Long> streamToId = new HashMap<>();
-    private final Map<Long, ExchangeConnection> idToConnection = new HashMap<>();
-    private final Map<GroupKey, List<ExchangeConnection>> connectionsPool = new HashMap<>();
+    private final Map<Long, SubscriptionDto> idToRequest = new ConcurrentHashMap<>();
+    private final Map<StreamKey, Long> streamToId = new ConcurrentHashMap<>();
+    private final Map<Long, ExchangeConnection> idToConnection = new ConcurrentHashMap<>();
+    private final Map<GroupKey, List<ExchangeConnection>> connectionsPool = new ConcurrentHashMap<>();
 
     public boolean exists(StreamKey key) {
         return streamToId.containsKey(key);
@@ -52,7 +54,7 @@ public class SubscriptionsRegistry {
     }
 
     public ExchangeConnection getOrCreateConnection(GroupKey groupKey, Supplier<ExchangeConnection> factory) {
-        List<ExchangeConnection> connections = connectionsPool.computeIfAbsent(groupKey, _ -> new ArrayList<>());
+        List<ExchangeConnection> connections = connectionsPool.computeIfAbsent(groupKey, _ -> new CopyOnWriteArrayList<>());
         connections.removeIf(ExchangeConnection::isClosed);
 
         for (ExchangeConnection conn : connections) {
