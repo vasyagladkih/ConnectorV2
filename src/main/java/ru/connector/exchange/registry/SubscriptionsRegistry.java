@@ -46,26 +46,25 @@ public class SubscriptionsRegistry {
     }
 
     public void unregister(Long id) {
-        SubscriptionDto req = idToRequest.remove(id);
-        if (req != null) {
-            streamToId.remove(StreamKey.from(req));
-        }
+        Optional<SubscriptionDto> req = Optional.ofNullable(idToRequest.remove(id));
+        req.ifPresent(subscriptionDto -> streamToId.remove(StreamKey.from(subscriptionDto)));
         idToConnection.remove(id);
     }
 
     public ExchangeConnection getOrCreateConnection(GroupKey groupKey, Supplier<ExchangeConnection> factory) {
+
         List<ExchangeConnection> connections = connectionsPool.computeIfAbsent(groupKey, _ -> new CopyOnWriteArrayList<>());
         connections.removeIf(ExchangeConnection::isClosed);
 
-        for (ExchangeConnection conn : connections) {
-            if (conn.hasCapacity()) {
-                return conn;
-            }
-        }
-
-        ExchangeConnection newConn = factory.get();
-        connections.add(newConn);
-        return newConn;
+        return connections
+                .stream()
+                .filter(ExchangeConnection::hasCapacity)
+                .findFirst()
+                .orElseGet(() -> {
+                    ExchangeConnection newConn = factory.get();
+                    connections.add(newConn);
+                    return newConn;
+                });
     }
 
     public List<SubscriptionDto> getAllActive() {

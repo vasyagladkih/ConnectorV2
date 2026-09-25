@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Менеджер подключения к бирже KuCoin на базе акторной модели.
@@ -41,7 +40,6 @@ public class KucoinManager extends AbstractWebsocketManager {
     private final ExchangeAdapter adapter;
 
     private final Map<GroupKey, GroupPoolActor> pools = new ConcurrentHashMap<>();
-    private final AtomicLong idSequence = new AtomicLong(System.currentTimeMillis());
 
     public KucoinManager(
             WebSocketClient wsClient,
@@ -78,44 +76,34 @@ public class KucoinManager extends AbstractWebsocketManager {
 
     @Override
     public boolean exists(StreamKey key) {
-        for (GroupPoolActor pool : pools.values()) {
-            if (pool.exists(key)) {
-                return true;
-            }
-        }
-        return false;
+        return pools.values()
+                .stream()
+                .anyMatch(pool -> pool.exists(key));
     }
 
     @Override
     public Optional<Long> findIdByStreamKey(StreamKey key) {
-        for (GroupPoolActor pool : pools.values()) {
-            Optional<Long> found = pool.findIdByStreamKey(key);
-            if (found.isPresent()) {
-                return found;
-            }
-        }
-        return Optional.empty();
+        return pools.values()
+                .stream()
+                .map(pool -> pool.findIdByStreamKey(key))
+                .flatMap(Optional::stream)
+                .findFirst();
     }
 
     @Override
     public boolean contains(Long id) {
-        for (GroupPoolActor pool : pools.values()) {
-            if (pool.contains(id)) {
-                return true;
-            }
-        }
-        return false;
+        return pools.values()
+                .stream()
+                .anyMatch(pool -> pool.contains(id));
     }
 
     @Override
     public Optional<SubscriptionDto> findRequestById(Long id) {
-        for (GroupPoolActor pool : pools.values()) {
-            Optional<SubscriptionDto> found = pool.findRequestById(id);
-            if (found.isPresent()) {
-                return found;
-            }
-        }
-        return Optional.empty();
+        return pools.values()
+                .stream()
+                .map(pool -> pool.findRequestById(id))
+                .flatMap(Optional::stream)
+                .findFirst();
     }
 
     @Override
@@ -129,14 +117,12 @@ public class KucoinManager extends AbstractWebsocketManager {
 
     @Override
     public Mono<Void> unsubscribe(Long id) {
-        return Mono.defer(() -> {
-            for (GroupPoolActor pool : pools.values()) {
-                if (pool.contains(id)) {
-                    return pool.unsubscribe(id);
-                }
-            }
-            return Mono.error(new SubscriptionNotFoundException(id));
-        });
+        return pools.values()
+                .stream()
+                .filter(pool -> pool.contains(id))
+                .findFirst()
+                .map(pool -> pool.unsubscribe(id))
+                .orElseGet(() -> Mono.error(new SubscriptionNotFoundException(id)));
     }
 
     @Override

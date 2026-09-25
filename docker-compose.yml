@@ -45,7 +45,7 @@ services:
     ports:
       - "5556:5556"
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       JAVA_TOOL_OPTIONS: "-Dio.netty.leakDetection.level=PARANOID -XX:NativeMemoryTracking=summary"
       SERVER_PORT: 5556
     depends_on:

@@ -69,14 +69,11 @@ public class ExchangeConnection implements WebSocketHandler {
     }
 
     public Mono<Void> send(String frame) {
-        if (closed) {
-            return Mono.error(new IllegalStateException("Socket is closed: " + url));
-        }
+        if (closed) return Mono.error(new IllegalStateException("Socket is closed: " + url));
         start();
         return connected.asMono().then(Mono.fromRunnable(() -> outgoing.tryEmitNext(frame)));
     }
 
-    @SuppressWarnings("unused")
     public int getActiveSlots() {
         return activeSlots.get();
     }
@@ -89,11 +86,8 @@ public class ExchangeConnection implements WebSocketHandler {
         activeSlots.incrementAndGet();
     }
 
-    @SuppressWarnings("unused")
     public void releaseSlot() {
-        if (activeSlots.decrementAndGet() <= 0) {
-            close();
-        }
+        if (activeSlots.decrementAndGet() <= 0) close();
     }
 
     public void close() {
