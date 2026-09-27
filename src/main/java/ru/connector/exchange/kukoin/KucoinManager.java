@@ -1,9 +1,7 @@
-package ru.connector.exchange.impl.kucoin;
+package ru.connector.exchange.kukoin;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.jspecify.annotations.Nullable;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.client.WebSocketClient;
 import reactor.core.publisher.Mono;
@@ -12,14 +10,11 @@ import ru.connector.api.dto.SubscriptionResponse;
 import ru.connector.exceptions.SubscriptionNotFoundException;
 import ru.connector.exchange.AbstractWebsocketManager;
 import ru.connector.exchange.actor.GroupPoolActor;
-import ru.connector.exchange.network.ExchangeAdapter;
-import ru.connector.exchange.registry.SubscriptionsRegistry;
 import ru.connector.kafka.KafkaRawDataPublisher;
 import ru.connector.models.Action;
 import ru.connector.models.Command;
 import ru.connector.models.GroupKey;
 import ru.connector.models.StreamKey;
-import ru.connector.transport.KucoinRegistry;
 
 import java.util.List;
 import java.util.Map;
@@ -37,41 +32,13 @@ public class KucoinManager extends AbstractWebsocketManager {
     private final WebSocketClient wsClient;
     private final KafkaRawDataPublisher rawPublisher;
     private final ObjectMapper objectMapper;
-    private final ExchangeAdapter adapter;
 
     private final Map<GroupKey, GroupPoolActor> pools = new ConcurrentHashMap<>();
 
-    public KucoinManager(
-            WebSocketClient wsClient,
-            KafkaRawDataPublisher rawPublisher,
-            ObjectMapper objectMapper,
-            ExchangeAdapter adapter
-    ) {
-        this(null, wsClient, rawPublisher, objectMapper, adapter);
-    }
-
-    public KucoinManager(
-            @Nullable SubscriptionsRegistry registry,
-            WebSocketClient wsClient,
-            KafkaRawDataPublisher rawPublisher,
-            ObjectMapper objectMapper
-    ) {
-        this(registry, wsClient, rawPublisher, objectMapper, new KucoinAdapter());
-    }
-
-    @Autowired
-    public KucoinManager(
-            @Nullable SubscriptionsRegistry registry,
-            WebSocketClient wsClient,
-            KafkaRawDataPublisher rawPublisher,
-            ObjectMapper objectMapper,
-            ExchangeAdapter adapter
-    ) {
-        super(registry);
+    public KucoinManager(WebSocketClient wsClient, KafkaRawDataPublisher rawPublisher, ObjectMapper objectMapper) {
         this.wsClient = wsClient;
         this.rawPublisher = rawPublisher;
         this.objectMapper = objectMapper;
-        this.adapter = adapter;
     }
 
     @Override
@@ -82,47 +49,31 @@ public class KucoinManager extends AbstractWebsocketManager {
     }
 
     @Override
-    public Optional<Long> findIdByStreamKey(StreamKey key) {
+    public Optional<SubscriptionDto> findRequest(StreamKey key) {
         return pools.values()
                 .stream()
-                .map(pool -> pool.findIdByStreamKey(key))
+                .map(pool -> pool.findRequest(key))
                 .flatMap(Optional::stream)
                 .findFirst();
     }
 
     @Override
-    public boolean contains(Long id) {
-        return pools.values()
-                .stream()
-                .anyMatch(pool -> pool.contains(id));
-    }
-
-    @Override
-    public Optional<SubscriptionDto> findRequestById(Long id) {
-        return pools.values()
-                .stream()
-                .map(pool -> pool.findRequestById(id))
-                .flatMap(Optional::stream)
-                .findFirst();
-    }
-
-    @Override
-    public Mono<Void> subscribe(Long id, SubscriptionDto sub) {
+    public Mono<Void> subscribe(SubscriptionDto sub) {
         return Mono.defer(() -> {
             GroupKey groupKey = GroupKey.of(sub.market(), sub.type());
             GroupPoolActor poolActor = getOrCreatePool(groupKey);
-            return poolActor.subscribe(id, sub);
+            return poolActor.subscribe(sub);
         });
     }
 
     @Override
-    public Mono<Void> unsubscribe(Long id) {
+    public Mono<Void> unsubscribe(StreamKey key) {
         return pools.values()
                 .stream()
-                .filter(pool -> pool.contains(id))
+                .filter(pool -> pool.exists(key))
                 .findFirst()
-                .map(pool -> pool.unsubscribe(id))
-                .orElseGet(() -> Mono.error(new SubscriptionNotFoundException(id)));
+                .map(pool -> pool.unsubscribe(key))
+                .orElseGet(() -> Mono.error(new SubscriptionNotFoundException(key)));
     }
 
     @Override
@@ -130,7 +81,7 @@ public class KucoinManager extends AbstractWebsocketManager {
         return pools.values().stream()
                 .flatMap(pool -> pool.getAllActive().stream())
                 .map(req -> new SubscriptionResponse(
-                        findIdByStreamKey(StreamKey.from(req)).orElse(0L),
+                        StreamKey.from(req).toString(),
                         req.exchange(),
                         req.market(),
                         req.symbol(),
@@ -181,7 +132,7 @@ public class KucoinManager extends AbstractWebsocketManager {
         return pools.computeIfAbsent(groupKey, key -> {
             GroupPoolActor poolActor = new GroupPoolActor(
                     key,
-                    adapter,
+                    new KucoinAdapter(),
                     wsClient,
                     rawPublisher,
                     sub -> translate(sub, Action.SUBSCRIBE),

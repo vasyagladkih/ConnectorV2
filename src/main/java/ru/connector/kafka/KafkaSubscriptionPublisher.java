@@ -9,21 +9,21 @@ import ru.connector.api.dto.SubscriptionDto;
 @Component
 public class KafkaSubscriptionPublisher {
 
-    private final KafkaTemplate<Long, SubscriptionDto> kafkaTemplate;
+    private final KafkaTemplate<String, SubscriptionDto> kafkaTemplate;
     private final String topic;
 
     public KafkaSubscriptionPublisher(
-            KafkaTemplate<Long, SubscriptionDto> kafkaTemplate,
+            KafkaTemplate<String, SubscriptionDto> kafkaTemplate,
             @Value("${kafka.topics.subscription-state:market.subscriptions}") String topic) {
         this.kafkaTemplate = kafkaTemplate;
         this.topic = topic;
     }
 
-    public Mono<Void> publish(Long id, SubscriptionDto request) {
-        return Mono.fromFuture(() -> kafkaTemplate.send(topic, id, request)).then();
+    public Mono<Void> publish(String key, SubscriptionDto request) {
+        return Mono.fromFuture(() -> kafkaTemplate.send(topic, key, request)).then();
     }
 
-    public Mono<Void> publishTombstone(Long id) {
-        return Mono.fromFuture(() -> kafkaTemplate.send(topic, id, null)).then();
+    public Mono<Void> publishTombstone(String key) {
+        return Mono.fromFuture(() -> kafkaTemplate.send(topic, key, null)).then();
     }
 }

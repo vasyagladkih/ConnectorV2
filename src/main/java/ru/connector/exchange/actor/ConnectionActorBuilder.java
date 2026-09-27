@@ -2,7 +2,7 @@ package ru.connector.exchange.actor;
 
 import lombok.Getter;
 import org.springframework.web.reactive.socket.client.WebSocketClient;
-import ru.connector.exchange.network.ExchangeAdapter;
+import ru.connector.exchange.ExchangeAdapter;
 
 import java.net.URI;
 import java.time.Duration;

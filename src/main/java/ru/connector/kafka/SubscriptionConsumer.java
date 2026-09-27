@@ -7,7 +7,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
-import reactor.core.publisher.Mono;
 import ru.connector.api.dto.SubscriptionDto;
 import ru.connector.service.ExchangeService;
 
@@ -26,25 +25,18 @@ public class SubscriptionConsumer {
             topics = "${kafka.topics.subscription-state:market.subscriptions}",
             groupId = "connector-subscription-group"
     )
-    public void onMessage(ConsumerRecord<Object, SubscriptionDto> record, Acknowledgment ack) {
-        SubscriptionDto request = record.value();
+    public void onMessage(ConsumerRecord<String, SubscriptionDto> consumerRecord, Acknowledgment ack) {
+        String key = consumerRecord.key();
+        SubscriptionDto request = consumerRecord.value();
 
         try {
             if (request != null) {
-                service.subscribe(Mono.just(request)).block(TIMEOUT);
-            } else {
-                Object keyObj = record.key();
-                if (keyObj != null) {
-                    try {
-                        Long id = (keyObj instanceof Long l) ? l : Long.parseLong(keyObj.toString());
-                        service.unsubscribe(id).block(TIMEOUT);
-                    } catch (NumberFormatException e) {
-                        log.error("Invalid key format for unsubscribe: {}", keyObj, e);
-                    }
-                }
+                service.subscribe(request).block(TIMEOUT);
+            } else if (key != null) {
+                service.unsubscribe(key).block(TIMEOUT);
             }
         } catch (Exception e) {
-            log.error("Failed to process subscription record for key={}", record.key(), e);
+            log.error("Failed to process subscription record for key={}", key, e);
         } finally {
             ack.acknowledge();
         }

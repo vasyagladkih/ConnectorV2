@@ -1,4 +1,4 @@
-package ru.connector.exchange.impl.kucoin;
+package ru.connector.exchange.kukoin;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
 import reactor.core.publisher.Flux;
-import ru.connector.exchange.network.ExchangeAdapter;
+import ru.connector.exchange.ExchangeAdapter;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;

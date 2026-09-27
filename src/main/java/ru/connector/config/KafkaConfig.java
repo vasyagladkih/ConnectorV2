@@ -1,13 +1,9 @@
 package ru.connector.config;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.common.errors.SerializationException;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
-import org.apache.kafka.common.serialization.LongSerializer;
-import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -16,6 +12,7 @@ import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.serializer.JacksonJsonSerializer;
 import ru.connector.api.dto.SubscriptionDto;
 
 import java.util.HashMap;
@@ -86,23 +83,12 @@ public class KafkaConfig {
     }
 
     @Bean
-    public KafkaTemplate<Long, SubscriptionDto> subscriptionKafkaTemplate(ObjectMapper objectMapper) {
+    public KafkaTemplate<String, SubscriptionDto> subscriptionKafkaTemplate() {
         Map<String, Object> props = baseProducerConfigs();
-        Serializer<SubscriptionDto> valueSerializer = (_, data) -> {
-            if (data == null) {
-                return null;
-            }
-            try {
-                return objectMapper.writeValueAsBytes(data);
-            } catch (Exception e) {
-                throw new SerializationException("Failed to serialize SubscriptionDto", e);
-            }
-        };
-
-        DefaultKafkaProducerFactory<Long, SubscriptionDto> factory = new DefaultKafkaProducerFactory<>(
+        DefaultKafkaProducerFactory<String, SubscriptionDto> factory = new DefaultKafkaProducerFactory<>(
                 props,
-                new LongSerializer(),
-                valueSerializer
+                new StringSerializer(),
+                new JacksonJsonSerializer<>()
         );
         return new KafkaTemplate<>(factory);
     }

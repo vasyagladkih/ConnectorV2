@@ -7,8 +7,8 @@ import ru.connector.models.Symbol;
 
 @Schema(description = "Модель зарегистрированной подписки на поток рыночных данных")
 public record SubscriptionResponse(
-        @Schema(description = "Уникальный идентификатор подписки в шлюзе", example = "1")
-        Long id,
+        @Schema(description = "Уникальный идентификатор подписки в шлюзе (ключ потока)", example = "KUCOIN:SPOT:BTC-USDT:TRADES")
+        String id,
 
         @Schema(description = "Идентификатор биржи", example = "KUCOIN")
         String exchange,
@@ -23,7 +23,7 @@ public record SubscriptionResponse(
         Command command
 ) {
 
-    public static SubscriptionResponse toResponse(Long id, SubscriptionDto request) {
+    public static SubscriptionResponse toResponse(String id, SubscriptionDto request) {
         return new SubscriptionResponse(
                 id,
                 request.exchange(),

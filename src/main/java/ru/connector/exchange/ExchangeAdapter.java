@@ -1,4 +1,4 @@
-package ru.connector.exchange.network;
+package ru.connector.exchange;
 
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.web.reactive.socket.WebSocketMessage;

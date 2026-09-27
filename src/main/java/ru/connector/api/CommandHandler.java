@@ -37,7 +37,7 @@ public class CommandHandler {
     @PostMapping(value = "/subscriptions", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Mono<SubscriptionResponse> subscribe(@RequestBody @Valid Mono<SubscriptionDto> request) {
-        return exchangeService.subscribe(request);
+        return exchangeService.saveToJournal(request);
     }
 
     @Operation(
@@ -46,8 +46,8 @@ public class CommandHandler {
     )
     @DeleteMapping("/subscriptions/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public Mono<Void> unsubscribe(@PathVariable("id") Long id) {
-        return exchangeService.unsubscribe(id);
+    public Mono<Void> unsubscribe(@PathVariable("id") String id) {
+        return exchangeService.saveToJournalTombstone(id);
     }
 
     @Operation(

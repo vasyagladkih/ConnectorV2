@@ -1,4 +1,4 @@
-package ru.connector.transport;
+package ru.connector.exchange.kukoin;
 
 import ru.connector.api.dto.SubscriptionDto;
 import ru.connector.models.Action;

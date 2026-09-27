@@ -11,11 +11,9 @@ import java.util.Optional;
 @SuppressWarnings("unused")
 public interface ExchangeManager {
     boolean exists(StreamKey key);
-    Optional<Long> findIdByStreamKey(StreamKey key);
-    boolean contains(Long id);
-    Optional<SubscriptionDto> findRequestById(Long id);
-    Mono<Void> subscribe(Long id, SubscriptionDto request);
-    Mono<Void> unsubscribe(Long id);
+    Optional<SubscriptionDto> findRequest(StreamKey key);
+    Mono<Void> subscribe(SubscriptionDto request);
+    Mono<Void> unsubscribe(StreamKey key);
     List<SubscriptionResponse> getAllActive();
     void shutdown();
 }

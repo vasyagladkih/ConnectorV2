@@ -10,8 +10,8 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import ru.connector.api.dto.SubscriptionDto;
 import ru.connector.exceptions.ExchangeConnectionException;
-import ru.connector.exchange.impl.kucoin.KucoinAdapter;
-import ru.connector.exchange.impl.kucoin.KucoinManager;
+import ru.connector.exchange.kukoin.KucoinAdapter;
+import ru.connector.exchange.kukoin.KucoinManager;
 import ru.connector.models.Action;
 import ru.connector.models.Command;
 import ru.connector.models.MarketType;
@@ -96,7 +96,7 @@ class BugReproductionTest {
     @Test
     @DisplayName("Баг: Повторный вызов translate(sub, SUBSCRIBE) при отписке меняет id фрейма, блокируя отписку")
     void shouldProduceIdenticalSubscribeFrameForUnsubscribeMatching() {
-        KucoinManager manager = new KucoinManager(null, null, null, new ObjectMapper());
+        KucoinManager manager = new KucoinManager(null, null, new ObjectMapper());
         SubscriptionDto dto = new SubscriptionDto("KUCOIN", MarketType.SPOT, Symbol.parse("BTC-USDT"), new Command.Trades());
 
         String firstSubscribeFrame = manager.translate(dto, Action.SUBSCRIBE);
@@ -122,10 +122,10 @@ class BugReproductionTest {
         when(mockClient.execute(any(URI.class), any(WebSocketHandler.class)))
                 .thenReturn(Mono.error(new ExchangeConnectionException("WebSocket connection refused")));
 
-        KucoinManager manager = new KucoinManager(null, mockClient, null, new com.fasterxml.jackson.databind.ObjectMapper());
+        KucoinManager manager = new KucoinManager(mockClient, null, new com.fasterxml.jackson.databind.ObjectMapper());
         SubscriptionDto dto = new SubscriptionDto("KUCOIN", MarketType.SPOT, Symbol.parse("BTC-USDT"), new Command.Trades());
 
-        StepVerifier.create(manager.subscribe(1L, dto))
+        StepVerifier.create(manager.subscribe(dto))
                 .expectError(ExchangeConnectionException.class)
                 .verify(java.time.Duration.ofSeconds(2));
     }

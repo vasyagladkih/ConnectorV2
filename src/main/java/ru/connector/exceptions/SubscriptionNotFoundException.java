@@ -7,7 +7,7 @@ public class SubscriptionNotFoundException extends ConnectorException {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    public SubscriptionNotFoundException(Long id) {
-        super("Subscription not found: " + id);
+    public SubscriptionNotFoundException(Object key) {
+        super("Subscription not found: " + key);
     }
 }

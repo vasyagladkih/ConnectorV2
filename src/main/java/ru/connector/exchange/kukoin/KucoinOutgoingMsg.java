@@ -1,4 +1,4 @@
-package ru.connector.exchange.impl.kucoin;
+package ru.connector.exchange.kukoin;
 
 public sealed interface KucoinOutgoingMsg permits
         KucoinOutgoingMsg.KucoinTradeMsg,

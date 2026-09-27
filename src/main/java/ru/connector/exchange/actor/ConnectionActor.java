@@ -16,7 +16,7 @@ import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 import reactor.util.retry.Retry;
-import ru.connector.exchange.network.ExchangeAdapter;
+import ru.connector.exchange.ExchangeAdapter;
 import ru.connector.models.StreamKey;
 
 import java.net.URI;
@@ -124,9 +124,7 @@ public final class ConnectionActor {
             commands = Flux.concat(resubscribeStream, outboundFlux);
         }
 
-        if (!rateLimitDelay.isZero()) {
-            commands = commands.delayElements(rateLimitDelay);
-        }
+        if (!rateLimitDelay.isZero()) commands = commands.delayElements(rateLimitDelay);
         return commands.map(session::textMessage);
     }
 
@@ -206,9 +204,7 @@ public final class ConnectionActor {
         return connected.asMono().then(Mono.defer(() -> {
             Sinks.One<Void> reply = Sinks.one();
             Sinks.EmitResult result = mailbox.tryEmitNext(new ConnectionCommand.Subscribe(key, frame, reply));
-            if (result.isFailure()) {
-                return Mono.error(new IllegalStateException("Очередь актора отклонила подписку: " + result));
-            }
+            if (result.isFailure()) return Mono.error(new IllegalStateException("Очередь актора отклонила подписку: " + result));
             return reply.asMono();
         }));
     }
@@ -217,9 +213,7 @@ public final class ConnectionActor {
         if (closed) return Mono.error(new IllegalStateException("Соединение " + id + " закрыто"));
         Sinks.One<Void> reply = Sinks.one();
         Sinks.EmitResult result = mailbox.tryEmitNext(new ConnectionCommand.Unsubscribe(key, unsubscribeFrame, reply));
-        if (result.isFailure()) {
-            return Mono.error(new IllegalStateException("Очередь актора отклонила отписку: " + result));
-        }
+        if (result.isFailure()) return Mono.error(new IllegalStateException("Очередь актора отклонила отписку: " + result));
         return reply.asMono();
     }
 

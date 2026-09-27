@@ -11,11 +11,11 @@ import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 import ru.connector.api.dto.SubscriptionDto;
 import ru.connector.exceptions.SubscriptionNotFoundException;
-import ru.connector.exchange.network.ExchangeAdapter;
+import ru.connector.exchange.ExchangeAdapter;
 import ru.connector.kafka.KafkaRawDataPublisher;
 import ru.connector.models.GroupKey;
 import ru.connector.models.StreamKey;
-import ru.connector.transport.KucoinRegistry;
+import ru.connector.exchange.kukoin.KucoinRegistry;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -55,15 +55,12 @@ public final class GroupPoolActor implements AutoCloseable {
     private final Scheduler scheduler;
     private final AtomicInteger connectionIdSequence = new AtomicInteger(0);
 
-    // Внутреннее состояние актора (доступно только из потока scheduler)
     private final List<ConnectionActor> pool = new ArrayList<>();
-    private final Map<Long, SubscriptionDto> idToRequest = new HashMap<>();
-    private final Map<StreamKey, Long> streamToId = new HashMap<>();
-    private final Map<Long, ConnectionActor> idToConnection = new HashMap<>();
-    private final Map<ConnectionActor, Set<Long>> connectionToIds = new HashMap<>();
+    private final Map<StreamKey, SubscriptionDto> subscriptions = new HashMap<>();
+    private final Map<StreamKey, ConnectionActor> streamToConnection = new HashMap<>();
+    private final Map<ConnectionActor, Set<StreamKey>> connectionToStreams = new HashMap<>();
 
-    private final Map<StreamKey, Long> readStreamToId = new ConcurrentHashMap<>();
-    private final Map<Long, SubscriptionDto> readIdToRequest = new ConcurrentHashMap<>();
+    private final Map<StreamKey, SubscriptionDto> readSubscriptions = new ConcurrentHashMap<>();
 
     private final AtomicBoolean isStarted = new AtomicBoolean(false);
     private volatile boolean closed = false;
@@ -105,11 +102,10 @@ public final class GroupPoolActor implements AutoCloseable {
     }
 
     private Mono<Void> handleSubscribe(PoolCommand.Subscribe cmd) {
-        Long id = cmd.id();
         SubscriptionDto request = cmd.request();
         StreamKey streamKey = StreamKey.from(request);
 
-        if (streamToId.containsKey(streamKey)) {
+        if (subscriptions.containsKey(streamKey)) {
             cmd.reply().emitEmpty(Sinks.EmitFailureHandler.FAIL_FAST);
             return Mono.empty();
         }
@@ -120,23 +116,21 @@ public final class GroupPoolActor implements AutoCloseable {
 
         return chosenConn.subscribe(streamKey, frame)
                 .doOnSuccess(_ -> {
-                    idToRequest.put(id, request);
-                    streamToId.put(streamKey, id);
-                    idToConnection.put(id, chosenConn);
-                    connectionToIds.get(chosenConn).add(id);
+                    subscriptions.put(streamKey, request);
+                    streamToConnection.put(streamKey, chosenConn);
+                    connectionToStreams.get(chosenConn).add(streamKey);
 
-                    readStreamToId.put(streamKey, id);
-                    readIdToRequest.put(id, request);
+                    readSubscriptions.put(streamKey, request);
 
                     cmd.reply().emitEmpty(Sinks.EmitFailureHandler.FAIL_FAST);
                 })
                 .doOnError(err -> {
                     log.error("Ошибка подписки на сокете {}", chosenConn.getId(), err);
-                    Set<Long> ids = connectionToIds.get(chosenConn);
-                    if (ids != null && ids.isEmpty()) {
+                    Set<StreamKey> keys = connectionToStreams.get(chosenConn);
+                    if (keys != null && keys.isEmpty()) {
                         chosenConn.close();
                         pool.remove(chosenConn);
-                        connectionToIds.remove(chosenConn);
+                        connectionToStreams.remove(chosenConn);
                     }
                     cmd.reply().emitError(err, Sinks.EmitFailureHandler.FAIL_FAST);
                 });
@@ -146,63 +140,59 @@ public final class GroupPoolActor implements AutoCloseable {
         return pool.stream()
             .filter(c -> !c.isClosed())
             .filter(c -> {
-                Set<Long> ids = connectionToIds.get(c);
-                return ids != null && ids.size() < maxSubscriptionsPerConnection;
+                Set<StreamKey> keys = connectionToStreams.get(c);
+                return keys != null && keys.size() < maxSubscriptionsPerConnection;
             })
             .findFirst()
             .orElseGet(() -> {
                 var conn = createConnection();
                 pool.add(conn);
-                connectionToIds.put(conn, new HashSet<>());
+                connectionToStreams.put(conn, new HashSet<>());
                 return conn;
             });
     }
 
     private Mono<Void> handleUnsubscribe(PoolCommand.Unsubscribe command) {
-        Long id = command.id();
-        SubscriptionDto request = idToRequest.get(id);
+        StreamKey streamKey = command.key();
+        SubscriptionDto request = subscriptions.get(streamKey);
         if (request == null) {
-            command.reply().emitError(new SubscriptionNotFoundException(id), Sinks.EmitFailureHandler.FAIL_FAST);
+            command.reply().emitError(new SubscriptionNotFoundException(streamKey), Sinks.EmitFailureHandler.FAIL_FAST);
             return Mono.empty();
         }
 
-        ConnectionActor conn = idToConnection.get(id);
+        ConnectionActor conn = streamToConnection.get(streamKey);
         if (conn == null) {
-            command.reply().emitError(new IllegalStateException("Не найдено соединение для подписки: " + id), Sinks.EmitFailureHandler.FAIL_FAST);
+            command.reply().emitError(new IllegalStateException("Не найдено соединение для подписки: " + streamKey), Sinks.EmitFailureHandler.FAIL_FAST);
             return Mono.empty();
         }
 
         String unsubFrame = unsubscribeTranslator.apply(request);
-        StreamKey streamKey = StreamKey.from(request);
 
         return conn.unsubscribe(streamKey, unsubFrame)
                 .doOnSuccess(_ -> {
-                    cleanupSubscription(id, streamKey, conn);
+                    cleanupSubscription(streamKey, conn);
                     command.reply().emitEmpty(Sinks.EmitFailureHandler.FAIL_FAST);
                 })
                 .doOnError(err -> {
-                    cleanupSubscription(id, streamKey, conn);
+                    cleanupSubscription(streamKey, conn);
                     command.reply().emitError(err, Sinks.EmitFailureHandler.FAIL_FAST);
                 });
     }
 
-    private void cleanupSubscription(Long id, StreamKey streamKey, ConnectionActor conn) {
-        idToRequest.remove(id);
-        streamToId.remove(streamKey);
-        idToConnection.remove(id);
+    private void cleanupSubscription(StreamKey streamKey, ConnectionActor conn) {
+        subscriptions.remove(streamKey);
+        streamToConnection.remove(streamKey);
 
-        readStreamToId.remove(streamKey);
-        readIdToRequest.remove(id);
+        readSubscriptions.remove(streamKey);
 
-        Set<Long> ids = connectionToIds.get(conn);
-        if (ids != null) {
-            ids.remove(id);
-            // Если на сокете не осталось активных подписок — закрываем и удаляем из пула
-            if (ids.isEmpty()) {
+        Set<StreamKey> keys = connectionToStreams.get(conn);
+        if (keys != null) {
+            keys.remove(streamKey);
+            if (keys.isEmpty()) {
                 log.info("Соединение {} освободилось (0 подписок), закрываем сокет", conn.getId());
                 conn.close();
                 pool.remove(conn);
-                connectionToIds.remove(conn);
+                connectionToStreams.remove(conn);
             }
         }
     }
@@ -233,49 +223,35 @@ public final class GroupPoolActor implements AutoCloseable {
     /**
      * Отправить команду подписки в очередь пула.
      */
-    public Mono<Void> subscribe(Long id, SubscriptionDto request) {
-        if (closed) {
-            return Mono.error(new IllegalStateException("Пул сокетов закрыт: " + groupKey));
-        }
+    public Mono<Void> subscribe(SubscriptionDto request) {
+        if (closed) return Mono.error(new IllegalStateException("Пул сокетов закрыт: " + groupKey));
         Sinks.One<Void> reply = Sinks.one();
-        Sinks.EmitResult result = mailbox.tryEmitNext(new PoolCommand.Subscribe(id, request, reply));
-        if (result.isFailure()) {
-            return Mono.error(new IllegalStateException("Очередь пула отклонила подписку: " + result));
-        }
+        Sinks.EmitResult result = mailbox.tryEmitNext(new PoolCommand.Subscribe(request, reply));
+        if (result.isFailure()) return Mono.error(new IllegalStateException("Очередь пула отклонила подписку: " + result));
         return reply.asMono();
     }
 
     /**
      * Отправить команду отписки в очередь пула.
      */
-    public Mono<Void> unsubscribe(Long id) {
+    public Mono<Void> unsubscribe(StreamKey key) {
         if (closed) return Mono.error(new IllegalStateException("Пул сокетов закрыт: " + groupKey));
         Sinks.One<Void> reply = Sinks.one();
-        Sinks.EmitResult result = mailbox.tryEmitNext(new PoolCommand.Unsubscribe(id, reply));
-        if (result.isFailure()) {
-            return Mono.error(new IllegalStateException("Очередь пула отклонила отписку: " + result));
-        }
+        Sinks.EmitResult result = mailbox.tryEmitNext(new PoolCommand.Unsubscribe(key, reply));
+        if (result.isFailure()) return Mono.error(new IllegalStateException("Очередь пула отклонила отписку: " + result));
         return reply.asMono();
     }
 
     public boolean exists(StreamKey key) {
-        return readStreamToId.containsKey(key);
+        return readSubscriptions.containsKey(key);
     }
 
-    public Optional<Long> findIdByStreamKey(StreamKey key) {
-        return Optional.ofNullable(readStreamToId.get(key));
-    }
-
-    public boolean contains(Long id) {
-        return readIdToRequest.containsKey(id);
-    }
-
-    public Optional<SubscriptionDto> findRequestById(Long id) {
-        return Optional.ofNullable(readIdToRequest.get(id));
+    public Optional<SubscriptionDto> findRequest(StreamKey key) {
+        return Optional.ofNullable(readSubscriptions.get(key));
     }
 
     public List<SubscriptionDto> getAllActive() {
-        return List.copyOf(readIdToRequest.values());
+        return List.copyOf(readSubscriptions.values());
     }
 
     @Override
@@ -284,12 +260,10 @@ public final class GroupPoolActor implements AutoCloseable {
         closed = true;
         pool.forEach(ConnectionActor::close);
         pool.clear();
-        connectionToIds.clear();
-        idToRequest.clear();
-        streamToId.clear();
-        idToConnection.clear();
-        readStreamToId.clear();
-        readIdToRequest.clear();
+        connectionToStreams.clear();
+        subscriptions.clear();
+        streamToConnection.clear();
+        readSubscriptions.clear();
         if (mailboxLoop != null && !mailboxLoop.isDisposed()) mailboxLoop.dispose();
         mailbox.tryEmitComplete();
         scheduler.dispose();

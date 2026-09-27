@@ -18,11 +18,15 @@ import org.springframework.web.reactive.socket.WebSocketSession;
 import org.springframework.web.reactive.socket.client.WebSocketClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.springframework.kafka.support.Acknowledgment;
+import ru.connector.api.dto.SubscriptionDto;
 import ru.connector.exceptions.ExchangeConnectionException;
-import ru.connector.exchange.impl.kucoin.KucoinManager;
-import ru.connector.exchange.registry.SubscriptionsRegistry;
+import ru.connector.exchange.kukoin.KucoinManager;
 import ru.connector.kafka.KafkaRawDataPublisher;
 import ru.connector.kafka.KafkaSubscriptionPublisher;
+import ru.connector.kafka.SubscriptionConsumer;
+import ru.connector.models.StreamKey;
 import ru.connector.service.ExchangeService;
 
 import java.net.URI;
@@ -37,6 +41,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -57,12 +62,12 @@ class CommandHandlerTest {
     private KafkaRawDataPublisher mockRawPublisher;
 
     private List<String> sentWsFrames;
+    private SubscriptionConsumer subscriptionConsumer;
 
     @BeforeEach
     void setUp() {
         sentWsFrames = new CopyOnWriteArrayList<>();
 
-        // Симуляция сетевого WebSocket подключения
         lenient().when(mockWsClient.execute(any(URI.class), any(WebSocketHandler.class))).thenAnswer(invocation -> {
             WebSocketHandler handler = invocation.getArgument(1);
             WebSocketSession session = mock(WebSocketSession.class);
@@ -87,10 +92,10 @@ class CommandHandlerTest {
         lenient().when(mockKafkaPublisher.publishTombstone(any())).thenReturn(Mono.empty());
 
         // Сборка реального стека приложения
-        SubscriptionsRegistry registry = new SubscriptionsRegistry();
         ObjectMapper objectMapper = new ObjectMapper();
-        KucoinManager kucoinManager = new KucoinManager(registry, mockWsClient, mockRawPublisher, objectMapper);
+        KucoinManager kucoinManager = new KucoinManager(mockWsClient, mockRawPublisher, objectMapper);
         ExchangeService exchangeService = new ExchangeService(mockKafkaPublisher, Map.of("KUCOIN", kucoinManager));
+        subscriptionConsumer = new SubscriptionConsumer(exchangeService);
 
         client = WebTestClient.bindToController(new CommandHandler(exchangeService))
                 .controllerAdvice(new GlobalExceptionHandler())
@@ -100,52 +105,57 @@ class CommandHandlerTest {
     /**
      * Что проверяем: Успешное создание подписки на сделки BTC-USDT.
      * Что ждем:
-     *   - HTTP 202 Accepted и JSON с ID=1;
+     *   - HTTP 202 Accepted и JSON с ID=StreamKey;
      *   - Отправку события в Kafka (publish);
-     *   - Отправку кадра subscribe в сокет биржи;
+     *   - Прием консьюмером и отправку кадра subscribe в сокет биржи;
      *   - Появление записи в GET /api/subscriptions.
      */
     @Test
-    @DisplayName("POST /api/subscriptions: Успешная регистрация и отправка фрейма в WS")
-    void shouldSubscribeSuccessfully() {
+    @DisplayName("POST /api/subscriptions: Успешная регистрация и отправка фрейма в WS через Consumer")
+    void shouldSubscribeSuccessfully() throws Exception {
         postFixture("fixtures/requests/subscribe-spot-btc.json")
                 .expectStatus().isAccepted()
                 .expectBody()
-                .jsonPath("$.id").isEqualTo(1)
+                .jsonPath("$.id").isEqualTo("KUCOIN:SPOT:BTC-USDT:TRADES")
                 .jsonPath("$.exchange").isEqualTo("KUCOIN")
                 .jsonPath("$.market").isEqualTo("SPOT")
                 .jsonPath("$.symbol").isEqualTo("BTC-USDT");
 
-        verify(mockKafkaPublisher, times(1)).publish(eq(1L), any());
+        verify(mockKafkaPublisher, times(1)).publish(eq("KUCOIN:SPOT:BTC-USDT:TRADES"), any());
+
+        simulateKafkaSubscription("fixtures/requests/subscribe-spot-btc.json");
         assertWsFrameSent("subscribe");
 
         getActiveSubscriptions()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.length()").isEqualTo(1)
-                .jsonPath("$[0].id").isEqualTo(1);
+                .jsonPath("$[0].id").isEqualTo("KUCOIN:SPOT:BTC-USDT:TRADES");
     }
 
     /**
      * Что проверяем: Повторный запрос той же подписки (идемпотентность).
      * Что ждем:
-     *   - HTTP 202 с тем же ID=1;
-     *   - БЕЗ повторной отправки фрейма в сокет и БЕЗ дублирования в Kafka.
+     *   - HTTP 202 с тем же ID=StreamKey;
+     *   - БЕЗ повторной отправки фрейма в сокет при повторной вычитке из Kafka.
      */
     @Test
     @DisplayName("POST /api/subscriptions: Идемпотентность — повторный запрос возвращает тот же ID")
-    void shouldBeIdempotentOnDuplicateSubscription() {
+    void shouldBeIdempotentOnDuplicateSubscription() throws Exception {
         // Первый вызов
         postFixture("fixtures/requests/subscribe-spot-btc.json")
                 .expectStatus().isAccepted()
-                .expectBody().jsonPath("$.id").isEqualTo(1);
+                .expectBody().jsonPath("$.id").isEqualTo("KUCOIN:SPOT:BTC-USDT:TRADES");
+
+        simulateKafkaSubscription("fixtures/requests/subscribe-spot-btc.json");
 
         // Повторный вызов
         postFixture("fixtures/requests/subscribe-spot-btc.json")
                 .expectStatus().isAccepted()
-                .expectBody().jsonPath("$.id").isEqualTo(1);
+                .expectBody().jsonPath("$.id").isEqualTo("KUCOIN:SPOT:BTC-USDT:TRADES");
 
-        verify(mockKafkaPublisher, times(1)).publish(eq(1L), any());
+        simulateKafkaSubscription("fixtures/requests/subscribe-spot-btc.json");
+
         assertEquals(1, sentWsFrames.size(), "WebSocket frame must not be duplicated");
     }
 
@@ -153,22 +163,26 @@ class CommandHandlerTest {
      * Что проверяем: Отписку от существующего потока по ID.
      * Что ждем:
      *   - HTTP 204 No Content;
-     *   - Отправку кадра unsubscribe в биржевой сокет;
      *   - Запись tombstone в Kafka;
+     *   - Отправку кадра unsubscribe в сокет при получении tombstone консьюмером;
      *   - Удаление из списка активных подписок.
      */
     @Test
     @DisplayName("DELETE /api/subscriptions/{id}: Успешная отписка и очистка состояния")
-    void shouldUnsubscribeSuccessfully() {
+    void shouldUnsubscribeSuccessfully() throws Exception {
         // Создаем подписку
         postFixture("fixtures/requests/subscribe-spot-btc.json")
                 .expectStatus().isAccepted();
 
+        simulateKafkaSubscription("fixtures/requests/subscribe-spot-btc.json");
+
         // Отписываемся
-        deleteSubscription(1L)
+        deleteSubscription("KUCOIN:SPOT:BTC-USDT:TRADES")
                 .expectStatus().isNoContent();
 
-        verify(mockKafkaPublisher, times(1)).publishTombstone(eq(1L));
+        verify(mockKafkaPublisher, times(1)).publishTombstone(eq("KUCOIN:SPOT:BTC-USDT:TRADES"));
+
+        simulateKafkaTombstone("KUCOIN:SPOT:BTC-USDT:TRADES");
         assertWsFrameSent("unsubscribe");
 
         getActiveSubscriptions()
@@ -177,17 +191,16 @@ class CommandHandlerTest {
     }
 
     /**
-     * Что проверяем: Попытку отписки от несуществующего идентификатора.
-     * Что ждем: HTTP 404 Not Found с сообщением об ошибке.
+     * Что проверяем: Попытку отписки с некорректным форматом ключа.
+     * Что ждем: HTTP 400 Bad Request.
      */
     @Test
-    @DisplayName("DELETE /api/subscriptions/{id}: 404 Not Found для неизвестного ID")
-    void shouldReturnNotFoundOnUnknownSubscriptionId() {
-        deleteSubscription(999L)
-                .expectStatus().isNotFound()
+    @DisplayName("DELETE /api/subscriptions/{id}: 400 Bad Request для некорректного формата ключа")
+    void shouldReturnBadRequestOnMalformedKey() {
+        deleteSubscription("999")
+                .expectStatus().isBadRequest()
                 .expectBody()
-                .jsonPath("$.status").isEqualTo(404)
-                .jsonPath("$.message").isEqualTo("Subscription not found: 999");
+                .jsonPath("$.status").isEqualTo(400);
     }
 
     /**
@@ -229,36 +242,38 @@ class CommandHandlerTest {
     }
 
     /**
-     * Что проверяем: Сценарий сбоя сети при подключении к WebSocket биржи.
+     * Что проверяем: Сбой подключения в WebSocketClient при обработке в консьюмере.
      * Что ждем:
-     *   - HTTP 502 Bad Gateway клиенту;
-     *   - Автоматический откат (отправку tombstone в Kafka);
-     *   - Отсутствие подписки в реестре.
+     *   - Консьюмер ловит ошибку, не падает;
+     *   - Tombstone в Kafka НЕ отправляется (намерение сохраняется для восстановления).
      */
     @Test
-    @DisplayName("POST /api/subscriptions: 502 Bad Gateway и откат транзакции при сбое сокета")
-    void shouldRollbackStateWhenWebSocketConnectionFails() {
-        // Имитируем падение сокета
+    @DisplayName("SubscriptionConsumer: Обработка сбоя подключения сокета")
+    void shouldHandleWebSocketFailureInConsumer() throws Exception {
         reset(mockWsClient);
         when(mockWsClient.execute(any(URI.class), any(WebSocketHandler.class)))
                 .thenReturn(Mono.error(new ExchangeConnectionException("WebSocket connection refused")));
 
         postFixture("fixtures/requests/subscribe-spot-btc.json")
-                .expectStatus().isEqualTo(502)
-                .expectBody()
-                .jsonPath("$.status").isEqualTo(502)
-                .jsonPath("$.error").isEqualTo("Bad Gateway");
+                .expectStatus().isAccepted();
 
-        verify(mockKafkaPublisher, times(1)).publishTombstone(eq(1L));
+        simulateKafkaSubscription("fixtures/requests/subscribe-spot-btc.json");
 
-        getActiveSubscriptions()
-                .expectStatus().isOk()
-                .expectBody().jsonPath("$.length()").isEqualTo(0);
+        verify(mockKafkaPublisher, never()).publishTombstone(any());
     }
 
-    // =========================================================================
-    // Вспомогательные лаконичные методы (DSL для тестов)
-    // =========================================================================
+    private void simulateKafkaSubscription(String fixturePath) throws Exception {
+        byte[] bytes = new ClassPathResource(fixturePath).getInputStream().readAllBytes();
+        SubscriptionDto dto = new ObjectMapper().readValue(bytes, SubscriptionDto.class);
+        String key = StreamKey.from(dto).toString();
+        Acknowledgment ack = mock(Acknowledgment.class);
+        subscriptionConsumer.onMessage(new ConsumerRecord<>("market.subscriptions", 0, 0L, key, dto), ack);
+    }
+
+    private void simulateKafkaTombstone(String key) {
+        Acknowledgment ack = mock(Acknowledgment.class);
+        subscriptionConsumer.onMessage(new ConsumerRecord<>("market.subscriptions", 0, 1L, key, null), ack);
+    }
 
     private WebTestClient.ResponseSpec postFixture(String fixturePath) {
         return client.post()
@@ -268,7 +283,7 @@ class CommandHandlerTest {
                 .exchange();
     }
 
-    private WebTestClient.ResponseSpec deleteSubscription(long id) {
+    private WebTestClient.ResponseSpec deleteSubscription(String id) {
         return client.delete()
                 .uri("/api/subscriptions/" + id)
                 .exchange();
