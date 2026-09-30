@@ -1,5 +1,6 @@
 package ru.connector.exchange.actor;
 
+import lombok.Builder;
 import lombok.Getter;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
@@ -39,6 +40,9 @@ public final class ConnectionActor {
 
     private static final Logger log = LoggerFactory.getLogger(ConnectionActor.class);
     private static final int DEFAULT_BUFFER_SIZE = 1024;
+    private static final Duration DEFAULT_READ_IDLE_TIMEOUT = Duration.ofSeconds(60);
+    private static final Duration DEFAULT_RATE_LIMIT_DELAY = Duration.ZERO;
+    private static final Duration DEFAULT_RECONNECT_DELAY = Duration.ofSeconds(1);
 
     @Getter
     private final int id;
@@ -64,20 +68,31 @@ public final class ConnectionActor {
     private Disposable connection;
     private Disposable mailboxLoop;
 
-    ConnectionActor(ConnectionActorBuilder builder) {
-        this.id = builder.getId();
-        this.exchangeUrl = builder.getExchangeUrl();
-        this.adapter = builder.getAdapter();
-        this.wsClient = builder.getWsClient();
-        this.dataConsumer = builder.getDataConsumer();
-        this.fatalErrorConsumer = builder.getFatalErrorConsumer();
-        this.readIdleTimeout = builder.getReadIdleTimeout();
-        this.rateLimitDelay = builder.getRateLimitDelay();
-        this.reconnectDelay = builder.getReconnectDelay();
+    @Builder
+    private ConnectionActor(
+            int id,
+            @NonNull URI exchangeUrl,
+            @NonNull ExchangeAdapter adapter,
+            @NonNull WebSocketClient wsClient,
+            @NonNull Consumer<byte[]> dataConsumer,
+            @NonNull Consumer<Throwable> fatalErrorConsumer,
+            Duration readIdleTimeout,
+            Duration rateLimitDelay,
+            Duration reconnectDelay
+    ) {
+        this.id = id;
+        this.exchangeUrl = exchangeUrl;
+        this.adapter = adapter;
+        this.wsClient = wsClient;
+        this.dataConsumer = dataConsumer;
+        this.fatalErrorConsumer = fatalErrorConsumer;
+
+        this.readIdleTimeout = readIdleTimeout != null ? readIdleTimeout : DEFAULT_READ_IDLE_TIMEOUT;
+        this.rateLimitDelay = rateLimitDelay != null ? rateLimitDelay : DEFAULT_RATE_LIMIT_DELAY;
+        this.reconnectDelay = reconnectDelay != null ? reconnectDelay : DEFAULT_RECONNECT_DELAY;
+
         this.scheduler = Schedulers.newSingle("conn-actor-" + id);
     }
-
-    public static ConnectionActorBuilder builder() {return new ConnectionActorBuilder();}
 
     public void start() {
         if (closed || !isStarted.compareAndSet(false, true)) return;
@@ -102,8 +117,8 @@ public final class ConnectionActor {
         this.connection = wsClient.execute(exchangeUrl, handler)
                 .doOnError(connected::tryEmitError)
                 .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofMillis(200))
-                        .maxBackoff(Duration.ofMinutes(1))
-                        .filter(adapter::isRecoverable))
+                    .maxBackoff(Duration.ofMinutes(1))
+                    .filter(adapter::isRecoverable))
                 .repeatWhen(completed -> completed.delayElements(reconnectDelay))
                 .doOnError(err -> {
                     log.error("Фатальная ошибка WebSocket-соединения {}", id, err);
@@ -175,22 +190,21 @@ public final class ConnectionActor {
     }
 
     private Mono<Void> handleUnsubscribe(ConnectionCommand.Unsubscribe cmd) {
-        if (closed) {
-            cmd.reply().emitError(new IllegalStateException(MessageFormat.format("Соединение {0} закрыто", id)), Sinks.EmitFailureHandler.FAIL_FAST);
-            return Mono.empty();
-        }
-
-        String removed = activeSubscriptions.remove(cmd.key());
-        if (removed != null) {
-            Sinks.EmitResult result = outboundSink.tryEmitNext(cmd.unsubscribeFrame());
-            if (result.isFailure()) {
-                activeSubscriptions.put(cmd.key(), removed);
-                cmd.reply().emitError(new IllegalStateException("Не удалось отправить фрейм отписки: " + result), Sinks.EmitFailureHandler.FAIL_FAST);
-                return Mono.empty();
-            }
-        }
-        cmd.reply().emitEmpty(Sinks.EmitFailureHandler.FAIL_FAST);
-        return Mono.empty();
+        return Mono.just(closed)
+                .filter(isClosed -> !isClosed)
+                .switchIfEmpty(Mono.error(() -> new IllegalStateException(MessageFormat.format("Соединение {0} закрыто", id))))
+                .flatMap(_ -> Mono.justOrEmpty(activeSubscriptions.remove(cmd.key())))
+                .flatMap(removed -> {
+                    Sinks.EmitResult result = outboundSink.tryEmitNext(cmd.unsubscribeFrame());
+                    if (result.isFailure()) {
+                        activeSubscriptions.put(cmd.key(), removed);
+                        return Mono.error(new IllegalStateException("Не удалось отправить фрейм отписки: " + result));
+                    }
+                    return Mono.empty();
+                })
+                .doOnSuccess(_ -> cmd.reply().tryEmitEmpty())
+                .doOnError(cmd.reply()::tryEmitError)
+                .then();
     }
 
     private Mono<Void> handleClose(ConnectionCommand.Close cmd) {
