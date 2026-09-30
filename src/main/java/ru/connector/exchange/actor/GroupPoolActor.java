@@ -105,36 +105,35 @@ public final class GroupPoolActor implements AutoCloseable {
         SubscriptionDto request = cmd.request();
         StreamKey streamKey = StreamKey.from(request);
 
-        if (subscriptions.containsKey(streamKey)) {
-            cmd.reply().emitEmpty(Sinks.EmitFailureHandler.FAIL_FAST);
-            return Mono.empty();
-        }
+        return Mono.just(streamKey)
+                .filter(key -> !subscriptions.containsKey(key))
+                .flatMap(_ -> {
+                    ConnectionActor conn = getChosenConn();
+                    String frame = subscribeTranslator.apply(request);
 
-        ConnectionActor chosenConn = getChosenConn();
-
-        String frame = subscribeTranslator.apply(request);
-
-        return chosenConn.subscribe(streamKey, frame)
-                .doOnSuccess(_ -> {
-                    subscriptions.put(streamKey, request);
-                    streamToConnection.put(streamKey, chosenConn);
-                    connectionToStreams.get(chosenConn).add(streamKey);
-
-                    readSubscriptions.put(streamKey, request);
-
-                    cmd.reply().emitEmpty(Sinks.EmitFailureHandler.FAIL_FAST);
+                    return conn.subscribe(streamKey, frame)
+                            .doOnSuccess(_ -> registerSubscription(streamKey, request, conn))
+                            .doOnError(err -> handleSubscribeError(conn, err));
                 })
-                .doOnError(err -> {
-                    log.error("Ошибка подписки на сокете {}", chosenConn.getId(), err);
-                    Set<StreamKey> keys = connectionToStreams.get(chosenConn);
-                    if (keys != null && keys.isEmpty()) {
-                        chosenConn.close();
-                        pool.remove(chosenConn);
-                        connectionToStreams.remove(chosenConn);
-                    }
-                    cmd.reply().emitError(err, Sinks.EmitFailureHandler.FAIL_FAST);
-                });
+                .doOnSuccess(_ -> cmd.reply().tryEmitEmpty())
+                .doOnError(cmd.reply()::tryEmitError);
     }
+
+    private void registerSubscription(StreamKey key, SubscriptionDto req, ConnectionActor conn) {
+        subscriptions.put(key, req);
+        streamToConnection.put(key, conn);
+        connectionToStreams.get(conn).add(key);
+        readSubscriptions.put(key, req);
+    }
+
+    private void handleSubscribeError(ConnectionActor conn, Throwable err) {
+        log.error("Ошибка подписки на сокете {}", conn.getId(), err);
+        Optional.ofNullable(connectionToStreams.get(conn))
+                .filter(Set::isEmpty)
+                .ifPresent(_ -> close(conn));
+    }
+
+    private void close(ConnectionActor conn) {closeConn(conn);}
 
     private @NonNull ConnectionActor getChosenConn() {
         return pool.stream()
@@ -154,47 +153,32 @@ public final class GroupPoolActor implements AutoCloseable {
 
     private Mono<Void> handleUnsubscribe(PoolCommand.Unsubscribe command) {
         StreamKey streamKey = command.key();
-        SubscriptionDto request = subscriptions.get(streamKey);
-        if (request == null) {
-            command.reply().emitError(new SubscriptionNotFoundException(streamKey), Sinks.EmitFailureHandler.FAIL_FAST);
-            return Mono.empty();
-        }
 
-        ConnectionActor conn = streamToConnection.get(streamKey);
-        if (conn == null) {
-            command.reply().emitError(new IllegalStateException("Не найдено соединение для подписки: " + streamKey), Sinks.EmitFailureHandler.FAIL_FAST);
-            return Mono.empty();
-        }
-
-        String unsubFrame = unsubscribeTranslator.apply(request);
-
-        return conn.unsubscribe(streamKey, unsubFrame)
-                .doOnSuccess(_ -> {
-                    cleanupSubscription(streamKey, conn);
-                    command.reply().emitEmpty(Sinks.EmitFailureHandler.FAIL_FAST);
-                })
-                .doOnError(err -> {
-                    cleanupSubscription(streamKey, conn);
-                    command.reply().emitError(err, Sinks.EmitFailureHandler.FAIL_FAST);
-                });
+        return Mono.justOrEmpty(subscriptions.get(streamKey))
+                .switchIfEmpty(Mono.error(() -> new SubscriptionNotFoundException(streamKey)))
+                .flatMap(req -> Mono.justOrEmpty(streamToConnection.get(streamKey))
+                .switchIfEmpty(Mono.error(() -> new IllegalStateException("Не найдено соединение для подписки: " + streamKey)))
+                .flatMap(conn -> conn.unsubscribe(streamKey, unsubscribeTranslator.apply(req))
+                .doFinally(_ -> cleanupSubscription(streamKey, conn))))
+                .doOnSuccess(_ -> command.reply().tryEmitEmpty())
+                .doOnError(command.reply()::tryEmitError);
     }
 
     private void cleanupSubscription(StreamKey streamKey, ConnectionActor conn) {
         subscriptions.remove(streamKey);
         streamToConnection.remove(streamKey);
-
         readSubscriptions.remove(streamKey);
 
-        Set<StreamKey> keys = connectionToStreams.get(conn);
-        if (keys != null) {
-            keys.remove(streamKey);
-            if (keys.isEmpty()) {
-                log.info("Соединение {} освободилось (0 подписок), закрываем сокет", conn.getId());
-                conn.close();
-                pool.remove(conn);
-                connectionToStreams.remove(conn);
-            }
-        }
+        Optional.ofNullable(connectionToStreams.get(conn))
+                .filter(keys -> keys.remove(streamKey) && keys.isEmpty())
+                .ifPresent(_ -> closeConn(conn));
+    }
+
+    private void closeConn(ConnectionActor conn) {
+        log.info("Соединение {} освободилось (0 подписок), закрываем сокет", conn.getId());
+        conn.close();
+        pool.remove(conn);
+        connectionToStreams.remove(conn);
     }
 
     private ConnectionActor createConnection() {
@@ -210,6 +194,7 @@ public final class GroupPoolActor implements AutoCloseable {
                 .dataConsumer(bytes -> rawPublisher.publish(partitionKey, bytes))
                 .fatalErrorConsumer(err -> log.error("Фатальная ошибка сокета {}", connId, err))
                 .build();
+
         conn.start();
         return conn;
     }
