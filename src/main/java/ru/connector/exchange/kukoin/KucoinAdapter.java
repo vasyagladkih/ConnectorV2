@@ -21,7 +21,12 @@ public class KucoinAdapter implements ExchangeAdapter {
     private static final Logger log = LoggerFactory.getLogger(KucoinAdapter.class);
     private static final int PING_INTERVAL = 18;
     private static final int MAX_SUBSCRIPTIONS = 100;
-    private static final int PREVIEW_MAX_BYTES = 128;
+
+    private static final byte[] PONG = "pong".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] ACK = "ack".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] WELCOME = "welcome".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] ERROR = "error".getBytes(StandardCharsets.US_ASCII);
+    private static final byte[] RESULT = "\"result\"".getBytes(StandardCharsets.US_ASCII);
 
     @Override
     public Flux<WebSocketMessage> createPingStream(WebSocketSession session) {
@@ -52,18 +57,34 @@ public class KucoinAdapter implements ExchangeAdapter {
 
     @Override
     public boolean isServiceMsg(DataBuffer buffer) {
-        int readable = buffer.readableByteCount();
-        int checkLen = Math.min(readable, PREVIEW_MAX_BYTES);
-        byte[] preview = new byte[checkLen];
-        for (int i = 0; i < checkLen; i++) {preview[i] = buffer.getByte(buffer.readPosition() + i);}
-        String text = new String(preview, StandardCharsets.UTF_8);
-        // Позитивная проверка (white-list): сообщение является рыночными данными,
-        // если содержит обязательные поля KuCoin UTA ("T" и "d") либо legacy ("topic" / "type":"message")
-        boolean isMarketData = (text.contains("\"T\":") && text.contains("\"d\":"))
-                || text.contains("\"type\":\"message\"")
-                || text.contains("\"topic\":");
+        return matchBytes(buffer, PONG)
+               || matchBytes(buffer, ACK)
+               || matchBytes(buffer, WELCOME)
+               || matchBytes(buffer, ERROR)
+               || matchBytes(buffer, RESULT);
+    }
 
-        return !isMarketData;
+    private boolean matchBytes(DataBuffer buffer, byte[] target) {
+        int start = buffer.readPosition();
+        int len = buffer.readableByteCount();
+        int targetLen = target.length;
+
+        if (len < targetLen) return false;
+
+        int limit = start + len - targetLen;
+        for (int i = start; i <= limit; i++) {
+            if (buffer.getByte(i) == target[0]) {
+                boolean match = true;
+                for (int j = 1; j < targetLen; j++) {
+                    if (buffer.getByte(i + j) != target[j]) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) return true;
+            }
+        }
+        return false;
     }
 
     @Override

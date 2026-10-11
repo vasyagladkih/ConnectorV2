@@ -9,9 +9,7 @@ import ru.connector.models.Symbol;
 
 public class KucoinRegistry {
 
-    private KucoinRegistry() {
-        // Utility class
-    }
+    private KucoinRegistry() {}
 
     public static String getRestUrl(MarketType market) {
         return switch (market) {

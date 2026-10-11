@@ -8,7 +8,6 @@ import ru.connector.models.StreamKey;
 import java.util.List;
 import java.util.Optional;
 
-@SuppressWarnings("unused")
 public interface ExchangeManager {
     boolean exists(StreamKey key);
     Optional<SubscriptionDto> findRequest(StreamKey key);
