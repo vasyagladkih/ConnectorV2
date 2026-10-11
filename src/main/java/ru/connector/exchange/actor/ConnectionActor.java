@@ -158,8 +158,6 @@ public final class ConnectionActor {
                         }
                     } catch (Exception e) {
                         log.error("Ошибка обработки входящего фрейма в сокете {}", id, e);
-                    } finally {
-                        DataBufferUtils.release(buffer);
                     }
                 }).then();
     }

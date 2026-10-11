@@ -48,6 +48,14 @@ services:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       JAVA_TOOL_OPTIONS: "-Dio.netty.leakDetection.level=PARANOID -XX:NativeMemoryTracking=summary"
       SERVER_PORT: 5556
+      KAFKA_GROUP_INSTANCE_ID: "connector-node-1"
+    restart: on-failure
     depends_on:
       kafka:
         condition: service_healthy
+    develop:
+      watch:
+        - action: rebuild
+          path: ./src
+        - action: rebuild
+          path: ./build.gradle

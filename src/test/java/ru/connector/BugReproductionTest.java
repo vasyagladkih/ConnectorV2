@@ -1,6 +1,6 @@
 package ru.connector;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.buffer.DefaultDataBufferFactory;
@@ -96,7 +96,7 @@ class BugReproductionTest {
     @Test
     @DisplayName("Баг: Повторный вызов translate(sub, SUBSCRIBE) при отписке меняет id фрейма, блокируя отписку")
     void shouldProduceIdenticalSubscribeFrameForUnsubscribeMatching() {
-        KucoinManager manager = new KucoinManager(null, null, new ObjectMapper());
+        KucoinManager manager = new KucoinManager(null, null, JsonMapper.builder().build());
         SubscriptionDto dto = new SubscriptionDto("KUCOIN", MarketType.SPOT, Symbol.parse("BTC-USDT"), new Command.Trades());
 
         String firstSubscribeFrame = manager.translate(dto, Action.SUBSCRIBE);
@@ -122,7 +122,7 @@ class BugReproductionTest {
         when(mockClient.execute(any(URI.class), any(WebSocketHandler.class)))
                 .thenReturn(Mono.error(new ExchangeConnectionException("WebSocket connection refused")));
 
-        KucoinManager manager = new KucoinManager(mockClient, null, new com.fasterxml.jackson.databind.ObjectMapper());
+        KucoinManager manager = new KucoinManager(mockClient, null, JsonMapper.builder().build());
         SubscriptionDto dto = new SubscriptionDto("KUCOIN", MarketType.SPOT, Symbol.parse("BTC-USDT"), new Command.Trades());
 
         StepVerifier.create(manager.subscribe(dto))

@@ -29,6 +29,7 @@ public class KucoinAdapter implements ExchangeAdapter {
                 .map(seq -> session.textMessage("{\"id\":\"" + seq + "\",\"type\":\"ping\"}"));
     }
 
+    /*
     @Override
     public boolean isServiceMsg(DataBuffer buffer) {
         // Проверяем первые байты без сдвига указателя чтения (readPosition),
@@ -41,20 +42,35 @@ public class KucoinAdapter implements ExchangeAdapter {
         }
         String text = new String(preview, StandardCharsets.UTF_8);
         return text.contains("\"type\":\"welcome\"")
-                || text.contains("\"type\":\"pong\"")
-                || text.contains("\"type\":\"ack\"")
-                || text.contains("\"type\":\"error\"")
-                || text.contains("\"welcome\"")
-                || text.contains("\"pong\"");
+               || text.contains("\"type\":\"pong\"")
+               || text.contains("\"type\":\"ack\"")
+               || text.contains("\"type\":\"error\"")
+               || text.contains("\"welcome\"")
+               || text.contains("\"pong\"");
+    }
+    */
+
+    @Override
+    public boolean isServiceMsg(DataBuffer buffer) {
+        int readable = buffer.readableByteCount();
+        int checkLen = Math.min(readable, PREVIEW_MAX_BYTES);
+        byte[] preview = new byte[checkLen];
+        for (int i = 0; i < checkLen; i++) {preview[i] = buffer.getByte(buffer.readPosition() + i);}
+        String text = new String(preview, StandardCharsets.UTF_8);
+        // Позитивная проверка (white-list): сообщение является рыночными данными,
+        // если содержит обязательные поля KuCoin UTA ("T" и "d") либо legacy ("topic" / "type":"message")
+        boolean isMarketData = (text.contains("\"T\":") && text.contains("\"d\":"))
+                || text.contains("\"type\":\"message\"")
+                || text.contains("\"topic\":");
+
+        return !isMarketData;
     }
 
     @Override
     public void handleServiceMsg(DataBuffer buffer) {
         if (log.isDebugEnabled()) {
             byte[] bytes = new byte[buffer.readableByteCount()];
-            for (int i = 0; i < bytes.length; i++) {
-                bytes[i] = buffer.getByte(buffer.readPosition() + i);
-            }
+            for (int i = 0; i < bytes.length; i++) {bytes[i] = buffer.getByte(buffer.readPosition() + i);}
             log.debug("[KUCOIN-SERVICE] {}", new String(bytes, StandardCharsets.UTF_8));
         }
     }

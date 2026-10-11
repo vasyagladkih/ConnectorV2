@@ -1,7 +1,5 @@
 package ru.connector.exchange.kukoin;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.client.WebSocketClient;
 import reactor.core.publisher.Mono;
@@ -15,6 +13,7 @@ import ru.connector.models.Action;
 import ru.connector.models.Command;
 import ru.connector.models.GroupKey;
 import ru.connector.models.StreamKey;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
 import java.util.Map;
@@ -31,14 +30,14 @@ public class KucoinManager extends AbstractWebsocketManager {
 
     private final WebSocketClient wsClient;
     private final KafkaRawDataPublisher rawPublisher;
-    private final ObjectMapper objectMapper;
+    private final JsonMapper jsonMapper;
 
     private final Map<GroupKey, GroupPoolActor> pools = new ConcurrentHashMap<>();
 
-    public KucoinManager(WebSocketClient wsClient, KafkaRawDataPublisher rawPublisher, ObjectMapper objectMapper) {
+    public KucoinManager(WebSocketClient wsClient, KafkaRawDataPublisher rawPublisher, JsonMapper jsonMapper) {
         this.wsClient = wsClient;
         this.rawPublisher = rawPublisher;
-        this.objectMapper = objectMapper;
+        this.jsonMapper = jsonMapper;
     }
 
     @Override
@@ -93,11 +92,7 @@ public class KucoinManager extends AbstractWebsocketManager {
     @Override
     public String translate(SubscriptionDto request, Action action) {
         KucoinOutgoingMsg msg = resolveMsg(request, action);
-        try {
-            return objectMapper.writeValueAsString(msg);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to serialize Kucoin message: " + msg, e);
-        }
+        return jsonMapper.writeValueAsString(msg);
     }
 
     private KucoinOutgoingMsg resolveMsg(SubscriptionDto request, Action action) {
@@ -109,22 +104,20 @@ public class KucoinManager extends AbstractWebsocketManager {
         String channel = KucoinRegistry.getChannel(request.command());
 
         return switch (request.command()) {
-            case Command.Trades _ ->
-                    new KucoinOutgoingMsg.KucoinTradeMsg(id, actionStr, channel, marketType, symbol);
+            case Command.Trades _ -> new KucoinOutgoingMsg.KucoinTradeMsg(id, actionStr, channel, marketType, symbol);
 
             case Command.BookTicker _ ->
                     new KucoinOutgoingMsg.KucoinTickerMsg(id, actionStr, channel, marketType, symbol);
 
-            case Command.OrderBook ob ->
-                    new KucoinOutgoingMsg.KucoinOrderBookMsg(
-                            id,
-                            actionStr,
-                            channel,
-                            marketType,
-                            symbol,
-                            String.valueOf(ob.depth()),
-                            0
-                    );
+            case Command.OrderBook ob -> new KucoinOutgoingMsg.KucoinOrderBookMsg(
+                    id,
+                    actionStr,
+                    channel,
+                    marketType,
+                    symbol,
+                    String.valueOf(ob.depth()),
+                    0
+            );
         };
     }
 

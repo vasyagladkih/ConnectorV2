@@ -1,6 +1,7 @@
 package ru.connector.api;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,7 +20,6 @@ import org.springframework.web.reactive.socket.client.WebSocketClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.springframework.kafka.support.Acknowledgment;
 import ru.connector.api.dto.SubscriptionDto;
 import ru.connector.exceptions.ExchangeConnectionException;
 import ru.connector.exchange.kukoin.KucoinManager;
@@ -92,8 +92,8 @@ class CommandHandlerTest {
         lenient().when(mockKafkaPublisher.publishTombstone(any())).thenReturn(Mono.empty());
 
         // Сборка реального стека приложения
-        ObjectMapper objectMapper = new ObjectMapper();
-        KucoinManager kucoinManager = new KucoinManager(mockWsClient, mockRawPublisher, objectMapper);
+        JsonMapper jsonMapper = JsonMapper.builder().build();
+        KucoinManager kucoinManager = new KucoinManager(mockWsClient, mockRawPublisher, jsonMapper);
         ExchangeService exchangeService = new ExchangeService(mockKafkaPublisher, Map.of("KUCOIN", kucoinManager));
         subscriptionConsumer = new SubscriptionConsumer(exchangeService);
 
@@ -105,10 +105,10 @@ class CommandHandlerTest {
     /**
      * Что проверяем: Успешное создание подписки на сделки BTC-USDT.
      * Что ждем:
-     *   - HTTP 202 Accepted и JSON с ID=StreamKey;
-     *   - Отправку события в Kafka (publish);
-     *   - Прием консьюмером и отправку кадра subscribe в сокет биржи;
-     *   - Появление записи в GET /api/subscriptions.
+     * - HTTP 202 Accepted и JSON с ID=StreamKey;
+     * - Отправку события в Kafka (publish);
+     * - Прием консьюмером и отправку кадра subscribe в сокет биржи;
+     * - Появление записи в GET /api/subscriptions.
      */
     @Test
     @DisplayName("POST /api/subscriptions: Успешная регистрация и отправка фрейма в WS через Consumer")
@@ -136,8 +136,8 @@ class CommandHandlerTest {
     /**
      * Что проверяем: Повторный запрос той же подписки (идемпотентность).
      * Что ждем:
-     *   - HTTP 202 с тем же ID=StreamKey;
-     *   - БЕЗ повторной отправки фрейма в сокет при повторной вычитке из Kafka.
+     * - HTTP 202 с тем же ID=StreamKey;
+     * - БЕЗ повторной отправки фрейма в сокет при повторной вычитке из Kafka.
      */
     @Test
     @DisplayName("POST /api/subscriptions: Идемпотентность — повторный запрос возвращает тот же ID")
@@ -162,10 +162,10 @@ class CommandHandlerTest {
     /**
      * Что проверяем: Отписку от существующего потока по ID.
      * Что ждем:
-     *   - HTTP 204 No Content;
-     *   - Запись tombstone в Kafka;
-     *   - Отправку кадра unsubscribe в сокет при получении tombstone консьюмером;
-     *   - Удаление из списка активных подписок.
+     * - HTTP 204 No Content;
+     * - Запись tombstone в Kafka;
+     * - Отправку кадра unsubscribe в сокет при получении tombstone консьюмером;
+     * - Удаление из списка активных подписок.
      */
     @Test
     @DisplayName("DELETE /api/subscriptions/{id}: Успешная отписка и очистка состояния")
@@ -244,8 +244,8 @@ class CommandHandlerTest {
     /**
      * Что проверяем: Сбой подключения в WebSocketClient при обработке в консьюмере.
      * Что ждем:
-     *   - Консьюмер ловит ошибку, не падает;
-     *   - Tombstone в Kafka НЕ отправляется (намерение сохраняется для восстановления).
+     * - Консьюмер ловит ошибку, не падает;
+     * - Tombstone в Kafka НЕ отправляется (намерение сохраняется для восстановления).
      */
     @Test
     @DisplayName("SubscriptionConsumer: Обработка сбоя подключения сокета")
@@ -266,13 +266,11 @@ class CommandHandlerTest {
         byte[] bytes = new ClassPathResource(fixturePath).getInputStream().readAllBytes();
         SubscriptionDto dto = new ObjectMapper().readValue(bytes, SubscriptionDto.class);
         String key = StreamKey.from(dto).toString();
-        Acknowledgment ack = mock(Acknowledgment.class);
-        subscriptionConsumer.onMessage(new ConsumerRecord<>("market.subscriptions", 0, 0L, key, dto), ack);
+        subscriptionConsumer.onMessage(new ConsumerRecord<>("market.subscriptions", 0, 0L, key, dto));
     }
 
     private void simulateKafkaTombstone(String key) {
-        Acknowledgment ack = mock(Acknowledgment.class);
-        subscriptionConsumer.onMessage(new ConsumerRecord<>("market.subscriptions", 0, 1L, key, null), ack);
+        subscriptionConsumer.onMessage(new ConsumerRecord<>("market.subscriptions", 0, 1L, key, null));
     }
 
     private WebTestClient.ResponseSpec postFixture(String fixturePath) {
