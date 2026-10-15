@@ -1,10 +1,9 @@
 package ru.connector.kafka;
 
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.listener.ConsumerSeekAware;
 import org.springframework.stereotype.Component;
@@ -15,11 +14,11 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 
+@Slf4j
 @AllArgsConstructor
 @Component
 public class SubscriptionConsumer implements ConsumerSeekAware {
 
-    private static final Logger log = LoggerFactory.getLogger(SubscriptionConsumer.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
     private final ExchangeService service;
@@ -30,12 +29,18 @@ public class SubscriptionConsumer implements ConsumerSeekAware {
     )
     public void onMessage(ConsumerRecord<String, SubscriptionDto> record) {
         try {
+            if (record.value() != null) {
+                log.info("[KAFKA] Получена команда ПОДПИСКИ: key={}", record.key());
+            } else {
+                log.info("[KAFKA] Получен TOMBSTONE (команда ОТПИСКИ): key={}", record.key());
+            }
+
             Optional.ofNullable(record.value())
                     .map(service::subscribe)
                     .or(() -> Optional.ofNullable(record.key()).map(service::unsubscribe))
                     .ifPresent(action -> action.block(TIMEOUT));
         } catch (Exception e) {
-            log.error("Failed to process subscription record for key={}", record.key(), e);
+            log.error("[KAFKA] Ошибка обработки записи для key={}", record.key(), e);
         }
     }
 

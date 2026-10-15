@@ -19,6 +19,7 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_LOG_CLEANUP_POLICY: "compact,delete"
+      KAFKA_HEAP_OPTS: "-Xms128M -Xmx256M"
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
       interval: 5s
@@ -46,7 +47,7 @@ services:
       - "5556:5556"
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      JAVA_TOOL_OPTIONS: "-Dio.netty.leakDetection.level=PARANOID -XX:NativeMemoryTracking=summary"
+      JAVA_TOOL_OPTIONS: "-Xms64M -Xmx128M -Xss256k -XX:MaxMetaspaceSize=128M -XX:ReservedCodeCacheSize=32M"
       SERVER_PORT: 5556
       KAFKA_GROUP_INSTANCE_ID: "connector-node-1"
     restart: on-failure

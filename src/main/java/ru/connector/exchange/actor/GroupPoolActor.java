@@ -124,6 +124,7 @@ public final class GroupPoolActor implements AutoCloseable {
         streamToConnection.put(key, conn);
         connectionToStreams.get(conn).add(key);
         readSubscriptions.put(key, req);
+        log.info("[POOL-{}-{}] Подписка {} закреплена за сокетом #{}", groupKey.market(), groupKey.type(), key, conn.getId());
     }
 
     private void handleSubscribeError(ConnectionActor conn, Throwable err) {
@@ -169,6 +170,8 @@ public final class GroupPoolActor implements AutoCloseable {
         streamToConnection.remove(streamKey);
         readSubscriptions.remove(streamKey);
 
+        log.info("[POOL-{}-{}] Подписка {} удалена из сокета #{}", groupKey.market(), groupKey.type(), streamKey, conn.getId());
+
         Optional.ofNullable(connectionToStreams.get(conn))
                 .filter(keys -> keys.remove(streamKey) && keys.isEmpty())
                 .ifPresent(_ -> closeConn(conn));
@@ -185,6 +188,8 @@ public final class GroupPoolActor implements AutoCloseable {
         int connId = connectionIdSequence.incrementAndGet();
         URI url = URI.create(KucoinRegistry.getWsUrl(groupKey.market()));
         String partitionKey = "KUCOIN:" + groupKey.market();
+
+        log.info("[POOL-{}-{}] Создание нового сокета #{}, URL={}", groupKey.market(), groupKey.type(), connId, url);
 
         ConnectionActor conn = ConnectionActor.builder()
                 .id(connId)

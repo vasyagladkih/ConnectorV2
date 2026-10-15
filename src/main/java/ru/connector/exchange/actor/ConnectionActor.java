@@ -2,9 +2,8 @@ package ru.connector.exchange.actor;
 
 import lombok.Builder;
 import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.web.reactive.socket.WebSocketHandler;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
@@ -35,9 +34,9 @@ import java.util.function.Consumer;
  * Изолирует состояние подписок, автоматический реконнект с backoff, rate-limiting
  * и потокобезопасную передачу команд через однопоточный планировщик.
  */
+@Slf4j
 public final class ConnectionActor {
 
-    private static final Logger log = LoggerFactory.getLogger(ConnectionActor.class);
     private static final int DEFAULT_BUFFER_SIZE = 1024;
     private static final Duration DEFAULT_READ_IDLE_TIMEOUT = Duration.ofSeconds(60);
     private static final Duration DEFAULT_RATE_LIMIT_DELAY = Duration.ZERO;
@@ -103,6 +102,7 @@ public final class ConnectionActor {
 
         WebSocketHandler handler = session -> {
             connected.tryEmitEmpty();
+            log.info("[WS #{}] WebSocket-соединение УСТАНОВЛЕНО (Session ID: {})", id, session.getId());
             Mono<Void> inbound = inboundDataStream(session);
             Flux<WebSocketMessage> outboundCommands = allOutBoundStream(session);
 
@@ -117,7 +117,9 @@ public final class ConnectionActor {
                 .doOnError(connected::tryEmitError)
                 .retryWhen(Retry.backoff(Long.MAX_VALUE, Duration.ofMillis(200))
                     .maxBackoff(Duration.ofMinutes(1))
-                    .filter(adapter::isRecoverable))
+                    .filter(adapter::isRecoverable)
+                    .doBeforeRetry(signal -> log.warn("[WS #{}] Разрыв связи. Попытка реконнекта #{}, причина: {}",
+                            id, signal.totalRetries() + 1, signal.failure().getMessage())))
                 .repeatWhen(completed -> completed.delayElements(reconnectDelay))
                 .doOnError(err -> {
                     log.error("Фатальная ошибка WebSocket-соединения {}", id, err);
@@ -151,7 +153,7 @@ public final class ConnectionActor {
                         if (adapter.isServiceMsg(buffer)) {
                             adapter.handleServiceMsg(buffer);
                         } else {
-                            byte[] bytes = new byte[buffer.readableByteCount()];
+                            byte[] bytes = new byte[buffer.readableByteCount()]; // TODO 
                             buffer.read(bytes);
                             dataConsumer.accept(bytes);
                         }
@@ -176,6 +178,7 @@ public final class ConnectionActor {
         }
 
         activeSubscriptions.put(cmd.key(), cmd.frame());
+        log.debug("[WS #{}] Отправка фрейма подписки для {}: {}", id, cmd.key(), cmd.frame());
         Sinks.EmitResult result = outboundSink.tryEmitNext(cmd.frame());
         if (result.isFailure()) {
             activeSubscriptions.remove(cmd.key());
@@ -192,6 +195,7 @@ public final class ConnectionActor {
                 .switchIfEmpty(Mono.error(() -> new IllegalStateException(MessageFormat.format("Соединение {0} закрыто", id))))
                 .flatMap(_ -> Mono.justOrEmpty(activeSubscriptions.remove(cmd.key())))
                 .flatMap(removed -> {
+                    log.debug("[WS #{}] Отправка фрейма отписки для {}: {}", id, cmd.key(), cmd.unsubscribeFrame());
                     Sinks.EmitResult result = outboundSink.tryEmitNext(cmd.unsubscribeFrame());
                     if (result.isFailure()) {
                         activeSubscriptions.put(cmd.key(), removed);
@@ -231,6 +235,7 @@ public final class ConnectionActor {
     public void close() {
         if (closed) return;
         closed = true;
+        log.info("[WS #{}] Соединение закрыто", id);
         connected.tryEmitEmpty();
         if (connection != null && !connection.isDisposed()) connection.dispose();
         if (mailboxLoop != null && !mailboxLoop.isDisposed()) mailboxLoop.dispose();
