@@ -1,0 +1,8 @@
+{
+  "exchange": "KUCOIN",
+  "market": "SPOT",
+  "symbol": "INVALID",
+  "command": {
+    "type": "trades"
+  }
+}
