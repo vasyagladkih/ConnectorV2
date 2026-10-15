@@ -1,4 +1,5 @@
 rootProject.name = 'DataCollector'
 
-include ':connector'
+include ':data-ingestor'
 include 'control-plane'
+include 'common'
