@@ -9,7 +9,6 @@ body:
       label: Верификация
       options:
         - label: Баг проверен мной лично (не непроверенная гипотеза ИИ)
-          required: true
 
   - type: dropdown
     id: module

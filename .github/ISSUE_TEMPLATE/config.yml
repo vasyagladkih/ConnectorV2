@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Реестр известных проблем проекта
-    url: https://github.com/EDINDANDIL/ConnectorV2/blob/dev/issues/problems.txt
+    url: https://github.com/vasyagladkih/DataCollector/blob/dev/issues/problems.txt
     about: Проверить наличие дефекта в общем реестре перед созданием тикета
