@@ -1,15 +1,33 @@
 plugins {
-    id 'java'
+    id 'java-library'
+    id 'io.openapiprocessor.openapi-processor' version '2026.2'
 }
 
 group = 'ru'
 version = '1.0-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
+    api platform('org.springframework.boot:spring-boot-dependencies:4.1.1')
+    api 'org.springframework:spring-web'
+    api 'org.springframework:spring-context'
+    api 'jakarta.validation:jakarta.validation-api'
+    api 'com.fasterxml.jackson.core:jackson-annotations'
+    api 'org.jspecify:jspecify:1.0.0'
+    api 'org.mapstruct:mapstruct:1.6.3'
+    annotationProcessor 'org.mapstruct:mapstruct-processor:1.6.3'
+
+    compileOnly 'jakarta.annotation:jakarta.annotation-api:3.0.0'
+
     testImplementation platform('org.junit:junit-bom:6.0.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -18,3 +36,23 @@ dependencies {
 test {
     useJUnitPlatform()
 }
+
+openapiProcessor {
+    apiPath layout.projectDirectory.file("src/main/resources/openapi.yaml")
+
+    spring {
+        processor "io.openapiprocessor:openapi-processor-spring:2026.3.2"
+        targetDir layout.buildDirectory.dir("generated/src/main/java")
+        mapping layout.projectDirectory.file("src/main/resources/mapping.yaml")
+    }
+}
+
+sourceSets {
+    main {
+        java {
+            srcDir "$buildDir/generated/src/main/java"
+        }
+    }
+}
+
+compileJava.dependsOn 'processSpring'

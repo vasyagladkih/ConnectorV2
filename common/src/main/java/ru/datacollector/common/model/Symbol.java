@@ -1,4 +1,4 @@
-package ru.connector.models;
+package ru.datacollector.common.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;

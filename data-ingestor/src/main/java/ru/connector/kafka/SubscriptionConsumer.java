@@ -7,8 +7,8 @@ import org.apache.kafka.common.TopicPartition;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.listener.ConsumerSeekAware;
 import org.springframework.stereotype.Component;
-import ru.connector.api.dto.SubscriptionDto;
 import ru.connector.service.ExchangeService;
+import ru.datacollector.common.model.CreateSubscriptionRequest;
 
 import java.time.Duration;
 import java.util.Map;
@@ -27,7 +27,7 @@ public class SubscriptionConsumer implements ConsumerSeekAware {
             topics = "${kafka.topics.subscription-state:market.subscriptions}",
             groupId = "connector-subscription-group"
     )
-    public void onMessage(ConsumerRecord<String, SubscriptionDto> record) {
+    public void onMessage(ConsumerRecord<String, CreateSubscriptionRequest> record) {
         try {
             if (record.value() != null) {
                 log.info("[KAFKA] Получена команда ПОДПИСКИ: key={}", record.key());

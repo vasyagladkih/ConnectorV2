@@ -1,0 +1,14 @@
+openapi-processor-mapping: v18
+
+options:
+  package-name: ru.datacollector.common
+  model-name: model
+  model-type: record
+  one-of-interface: true
+  bean-validation: jakarta
+  format-code: false
+
+map:
+  result: org.springframework.http.ResponseEntity
+  types:
+    - type: array => java.util.List

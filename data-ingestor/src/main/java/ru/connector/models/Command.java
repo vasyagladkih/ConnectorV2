@@ -1,4 +1,5 @@
 package ru.connector.models;
+
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
@@ -15,8 +16,6 @@ public sealed interface Command permits
         Command.OrderBook {
 
     record Trades() implements Command {}
-    // TODO: временно отключено, текущий фокус только на TRADES
     record BookTicker() implements Command {}
-    // TODO: временно отключено, текущий фокус только на TRADES
     record OrderBook(int depth) implements Command {}
 }

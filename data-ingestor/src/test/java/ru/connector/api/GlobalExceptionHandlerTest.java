@@ -9,7 +9,7 @@ import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.support.WebExchangeBindException;
-import ru.connector.api.dto.ErrorResponse;
+import ru.datacollector.common.model.ErrorResponse;
 import ru.connector.exceptions.ConnectionCapacityException;
 import ru.connector.exceptions.ExchangeConnectionException;
 import ru.connector.exceptions.InvalidCommandException;

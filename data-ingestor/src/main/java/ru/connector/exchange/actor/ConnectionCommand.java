@@ -1,6 +1,7 @@
 package ru.connector.exchange.actor;
 
 import reactor.core.publisher.Sinks;
+import ru.datacollector.common.model.StreamKey;
 
 /**
  * Команды управления отдельным WebSocket-соединением (ConnectionActor).
@@ -14,7 +15,7 @@ public sealed interface ConnectionCommand {
      * @param frame тело сообщения подписки
      * @param reply подтверждение успешной отправки в исходящий поток сокета
      */
-    record Subscribe(ru.connector.models.StreamKey key, String frame, Sinks.One<Void> reply) implements ConnectionCommand {}
+    record Subscribe(StreamKey key, String frame, Sinks.One<Void> reply) implements ConnectionCommand {}
 
     /**
      * Запрос на отписку от WebSocket-канала.
@@ -23,7 +24,7 @@ public sealed interface ConnectionCommand {
      * @param unsubscribeFrame тело сообщения отписки для отправки в сокет
      * @param reply подтверждение успешной отправки в исходящий поток сокета
      */
-    record Unsubscribe(ru.connector.models.StreamKey key, String unsubscribeFrame, Sinks.One<Void> reply) implements ConnectionCommand {}
+    record Unsubscribe(StreamKey key, String unsubscribeFrame, Sinks.One<Void> reply) implements ConnectionCommand {}
 
     /**
      * Запрос на закрытие и завершение работы соединения.

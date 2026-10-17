@@ -1,9 +1,8 @@
 package ru.connector.exchange.actor;
 
 import reactor.core.publisher.Sinks;
-import ru.connector.api.dto.SubscriptionDto;
-
-import ru.connector.models.StreamKey;
+import ru.connector.models.SubscriptionDto;
+import ru.datacollector.common.model.StreamKey;
 
 /**
  * Команды управления пулом соединений группы (GroupPoolActor).

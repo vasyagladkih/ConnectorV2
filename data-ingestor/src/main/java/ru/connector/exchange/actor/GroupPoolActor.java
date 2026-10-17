@@ -9,12 +9,12 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
-import ru.connector.api.dto.SubscriptionDto;
 import ru.connector.exceptions.SubscriptionNotFoundException;
 import ru.connector.exchange.ExchangeAdapter;
 import ru.connector.kafka.KafkaRawDataPublisher;
 import ru.connector.models.GroupKey;
-import ru.connector.models.StreamKey;
+import ru.connector.models.SubscriptionDto;
+import ru.datacollector.common.model.StreamKey;
 import ru.connector.exchange.kukoin.KucoinRegistry;
 
 import java.net.URI;
@@ -103,7 +103,7 @@ public final class GroupPoolActor implements AutoCloseable {
 
     private Mono<Void> handleSubscribe(PoolCommand.Subscribe cmd) {
         SubscriptionDto request = cmd.request();
-        StreamKey streamKey = StreamKey.from(request);
+        StreamKey streamKey = request.key();
 
         return Mono.just(streamKey)
                 .filter(key -> !subscriptions.containsKey(key))

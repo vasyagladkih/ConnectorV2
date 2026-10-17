@@ -1,5 +1,8 @@
 package ru.connector.models;
 
+import ru.datacollector.common.model.MarketType;
+import ru.datacollector.common.model.Type;
+
 import java.util.Objects;
 
 public record GroupKey(

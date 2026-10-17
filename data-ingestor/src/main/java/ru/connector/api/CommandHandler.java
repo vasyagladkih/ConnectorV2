@@ -14,10 +14,11 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import ru.connector.api.dto.SubscriptionDto;
-import ru.connector.api.dto.SubscriptionResponse;
 import ru.connector.service.ExchangeService;
+import ru.datacollector.common.model.CreateSubscriptionRequest;
+import ru.datacollector.common.model.SubscriptionResponse;
 
+@Deprecated
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
@@ -27,7 +28,7 @@ public class CommandHandler {
 
     @PostMapping(value = "/subscriptions", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public Mono<SubscriptionResponse> subscribe(@RequestBody @Valid Mono<SubscriptionDto> request) {
+    public Mono<SubscriptionResponse> subscribe(@RequestBody @Valid Mono<CreateSubscriptionRequest> request) {
         return exchangeService.saveToJournal(request);
     }
 

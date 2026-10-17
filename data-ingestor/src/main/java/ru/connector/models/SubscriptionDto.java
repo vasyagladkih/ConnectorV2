@@ -1,12 +1,12 @@
-package ru.connector.api.dto;
+package ru.connector.models;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import ru.connector.models.Command;
-import ru.connector.models.MarketType;
-import ru.connector.models.Symbol;
-import ru.connector.models.Type;
+import ru.datacollector.common.model.MarketType;
+import ru.datacollector.common.model.StreamKey;
+import ru.datacollector.common.model.Symbol;
+import ru.datacollector.common.model.Type;
 
 public record SubscriptionDto(
         @NotBlank(message = "Exchange must not be blank")
@@ -24,6 +24,14 @@ public record SubscriptionDto(
         Command command
 ) {
     public Type type() {
-        return Type.type(command);
+        return switch (command) {
+            case Command.Trades _ -> Type.TRADES;
+            case Command.BookTicker _ -> Type.BOOK_TICKER;
+            case Command.OrderBook _ -> Type.ORDER_BOOK;
+        };
+    }
+
+    public StreamKey key() {
+        return new StreamKey(exchange, market, symbol, type());
     }
 }

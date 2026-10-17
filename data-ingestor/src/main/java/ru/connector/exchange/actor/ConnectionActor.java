@@ -16,7 +16,7 @@ import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 import reactor.util.retry.Retry;
 import ru.connector.exchange.ExchangeAdapter;
-import ru.connector.models.StreamKey;
+import ru.datacollector.common.model.StreamKey;
 
 import java.net.URI;
 import java.text.MessageFormat;
@@ -153,7 +153,7 @@ public final class ConnectionActor {
                         if (adapter.isServiceMsg(buffer)) {
                             adapter.handleServiceMsg(buffer);
                         } else {
-                            byte[] bytes = new byte[buffer.readableByteCount()]; // TODO 
+                            byte[] bytes = new byte[buffer.readableByteCount()];
                             buffer.read(bytes);
                             dataConsumer.accept(bytes);
                         }

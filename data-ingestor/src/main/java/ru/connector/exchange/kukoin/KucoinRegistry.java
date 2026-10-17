@@ -1,11 +1,11 @@
 package ru.connector.exchange.kukoin;
 
-import ru.connector.api.dto.SubscriptionDto;
-import ru.connector.models.Action;
 import ru.connector.models.Command;
-import ru.connector.models.MarketType;
-import ru.connector.models.StreamKey;
-import ru.connector.models.Symbol;
+import ru.connector.models.SubscriptionDto;
+import ru.datacollector.common.model.Action;
+import ru.datacollector.common.model.MarketType;
+import ru.datacollector.common.model.StreamKey;
+import ru.datacollector.common.model.Symbol;
 
 public class KucoinRegistry {
 
@@ -23,7 +23,7 @@ public class KucoinRegistry {
     }
 
     public static StreamKey generateKey(SubscriptionDto request) {
-        return StreamKey.from(request);
+        return request.key();
     }
 
     public static String getAction(Action action) {

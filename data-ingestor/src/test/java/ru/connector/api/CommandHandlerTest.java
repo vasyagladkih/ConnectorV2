@@ -1,7 +1,8 @@
 package ru.connector.api;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
+import org.springframework.http.codec.json.JacksonJsonDecoder;
+import org.springframework.http.codec.json.JacksonJsonEncoder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -20,14 +21,20 @@ import org.springframework.web.reactive.socket.client.WebSocketClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import ru.connector.api.dto.SubscriptionDto;
+import ru.datacollector.common.model.BookTickerCommand;
+import ru.datacollector.common.model.CreateSubscriptionRequest;
+import ru.datacollector.common.model.OrderBookCommand;
+import ru.datacollector.common.model.TradesCommand;
+import org.mapstruct.factory.Mappers;
 import ru.connector.exceptions.ExchangeConnectionException;
 import ru.connector.exchange.kukoin.KucoinManager;
 import ru.connector.kafka.KafkaRawDataPublisher;
 import ru.connector.kafka.KafkaSubscriptionPublisher;
 import ru.connector.kafka.SubscriptionConsumer;
-import ru.connector.models.StreamKey;
+import ru.connector.mapper.IngestorCommandMapper;
 import ru.connector.service.ExchangeService;
+import ru.datacollector.common.mapper.SubscriptionResponseMapper;
+import ru.datacollector.common.model.StreamKey;
 
 import java.net.URI;
 import java.util.List;
@@ -94,11 +101,19 @@ class CommandHandlerTest {
         // Сборка реального стека приложения
         JsonMapper jsonMapper = JsonMapper.builder().build();
         KucoinManager kucoinManager = new KucoinManager(mockWsClient, mockRawPublisher, jsonMapper);
-        ExchangeService exchangeService = new ExchangeService(mockKafkaPublisher, Map.of("KUCOIN", kucoinManager));
+        IngestorCommandMapper commandMapper = Mappers.getMapper(IngestorCommandMapper.class);
+        SubscriptionResponseMapper responseMapper = Mappers.getMapper(SubscriptionResponseMapper.class);
+        ExchangeService exchangeService = new ExchangeService(mockKafkaPublisher, Map.of("KUCOIN", kucoinManager), commandMapper, responseMapper);
         subscriptionConsumer = new SubscriptionConsumer(exchangeService);
+
+        JsonMapper testJsonMapper = ru.connector.config.KafkaConfig.createJsonMapper();
 
         client = WebTestClient.bindToController(new CommandHandler(exchangeService))
                 .controllerAdvice(new GlobalExceptionHandler())
+                .httpMessageCodecs(configurer -> {
+                    configurer.defaultCodecs().jacksonJsonDecoder(new JacksonJsonDecoder(testJsonMapper));
+                    configurer.defaultCodecs().jacksonJsonEncoder(new JacksonJsonEncoder(testJsonMapper));
+                })
                 .build();
     }
 
@@ -113,10 +128,11 @@ class CommandHandlerTest {
     @Test
     @DisplayName("POST /api/subscriptions: Успешная регистрация и отправка фрейма в WS через Consumer")
     void shouldSubscribeSuccessfully() throws Exception {
+        long expectedId = (long) ("KUCOIN:SPOT:BTC-USDT:TRADES".hashCode() & 0x7FFFFFFF);
         postFixture("fixtures/requests/subscribe-spot-btc.json")
                 .expectStatus().isAccepted()
                 .expectBody()
-                .jsonPath("$.id").isEqualTo("KUCOIN:SPOT:BTC-USDT:TRADES")
+                .jsonPath("$.id").isEqualTo(expectedId)
                 .jsonPath("$.exchange").isEqualTo("KUCOIN")
                 .jsonPath("$.market").isEqualTo("SPOT")
                 .jsonPath("$.symbol").isEqualTo("BTC-USDT");
@@ -130,7 +146,7 @@ class CommandHandlerTest {
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.length()").isEqualTo(1)
-                .jsonPath("$[0].id").isEqualTo("KUCOIN:SPOT:BTC-USDT:TRADES");
+                .jsonPath("$[0].id").isEqualTo(expectedId);
     }
 
     /**
@@ -142,17 +158,18 @@ class CommandHandlerTest {
     @Test
     @DisplayName("POST /api/subscriptions: Идемпотентность — повторный запрос возвращает тот же ID")
     void shouldBeIdempotentOnDuplicateSubscription() throws Exception {
+        long expectedId = (long) ("KUCOIN:SPOT:BTC-USDT:TRADES".hashCode() & 0x7FFFFFFF);
         // Первый вызов
         postFixture("fixtures/requests/subscribe-spot-btc.json")
                 .expectStatus().isAccepted()
-                .expectBody().jsonPath("$.id").isEqualTo("KUCOIN:SPOT:BTC-USDT:TRADES");
+                .expectBody().jsonPath("$.id").isEqualTo(expectedId);
 
         simulateKafkaSubscription("fixtures/requests/subscribe-spot-btc.json");
 
         // Повторный вызов
         postFixture("fixtures/requests/subscribe-spot-btc.json")
                 .expectStatus().isAccepted()
-                .expectBody().jsonPath("$.id").isEqualTo("KUCOIN:SPOT:BTC-USDT:TRADES");
+                .expectBody().jsonPath("$.id").isEqualTo(expectedId);
 
         simulateKafkaSubscription("fixtures/requests/subscribe-spot-btc.json");
 
@@ -264,7 +281,8 @@ class CommandHandlerTest {
 
     private void simulateKafkaSubscription(String fixturePath) throws Exception {
         byte[] bytes = new ClassPathResource(fixturePath).getInputStream().readAllBytes();
-        SubscriptionDto dto = new ObjectMapper().readValue(bytes, SubscriptionDto.class);
+        JsonMapper mapper = ru.connector.config.KafkaConfig.createJsonMapper();
+        CreateSubscriptionRequest dto = mapper.readValue(bytes, CreateSubscriptionRequest.class);
         String key = StreamKey.from(dto).toString();
         subscriptionConsumer.onMessage(new ConsumerRecord<>("market.subscriptions", 0, 0L, key, dto));
     }

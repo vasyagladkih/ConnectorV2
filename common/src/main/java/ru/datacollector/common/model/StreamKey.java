@@ -1,9 +1,8 @@
-package ru.connector.models;
+package ru.datacollector.common.model;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 import org.jspecify.annotations.NonNull;
-import ru.connector.api.dto.SubscriptionDto;
 
 import java.util.Locale;
 
@@ -13,12 +12,12 @@ public record StreamKey(
         Symbol symbol,
         Type type
 ) {
-    public static StreamKey from(SubscriptionDto request) {
+    public static StreamKey from(CreateSubscriptionRequest request) {
         return new StreamKey(
                 request.exchange().toUpperCase(Locale.ROOT),
                 request.market(),
-                request.symbol(),
-                request.type()
+                Symbol.parse(request.symbol()),
+                Type.type(request.command())
         );
     }
 

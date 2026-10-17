@@ -1,7 +1,7 @@
 package ru.connector.exchange;
 
-import ru.connector.api.dto.SubscriptionDto;
-import ru.connector.models.Action;
+import ru.connector.models.SubscriptionDto;
+import ru.datacollector.common.model.Action;
 
 public abstract class AbstractWebsocketManager implements ExchangeManager {
 

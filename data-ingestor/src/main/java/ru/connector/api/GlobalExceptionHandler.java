@@ -9,24 +9,34 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.server.ServerWebInputException;
-import ru.connector.api.dto.ErrorResponse;
+import ru.datacollector.common.model.ErrorResponse;
 import ru.connector.exceptions.ConnectionCapacityException;
 import ru.connector.exceptions.ExchangeConnectionException;
 import ru.connector.exceptions.InvalidCommandException;
 import ru.connector.exceptions.NotFoundExchangeException;
 import ru.connector.exceptions.SubscriptionNotFoundException;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 
+@Deprecated
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    private static ErrorResponse errorResponse(int status, String error, String message, String path) {
+        return new ErrorResponse(OffsetDateTime.now(), status, error, message, path, List.of());
+    }
+
+    private static ErrorResponse errorResponse(int status, String error, String message, String path, List<String> details) {
+        return new ErrorResponse(OffsetDateTime.now(), status, error, message, path, details != null ? List.copyOf(details) : List.of());
+    }
+
     @ExceptionHandler(SubscriptionNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleSubscriptionNotFound(SubscriptionNotFoundException ex, ServerHttpRequest request) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(ErrorResponse.of(
+                .body(errorResponse(
                         HttpStatus.NOT_FOUND.value(),
                         HttpStatus.NOT_FOUND.getReasonPhrase(),
                         ex.getMessage(),
@@ -37,7 +47,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NotFoundExchangeException.class)
     public ResponseEntity<ErrorResponse> handleNotFoundExchange(NotFoundExchangeException ex, ServerHttpRequest request) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(ErrorResponse.of(
+                .body(errorResponse(
                         HttpStatus.NOT_FOUND.value(),
                         HttpStatus.NOT_FOUND.getReasonPhrase(),
                         ex.getMessage(),
@@ -48,7 +58,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(InvalidCommandException.class)
     public ResponseEntity<ErrorResponse> handleInvalidCommand(InvalidCommandException ex, ServerHttpRequest request) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ErrorResponse.of(
+                .body(errorResponse(
                         HttpStatus.BAD_REQUEST.value(),
                         HttpStatus.BAD_REQUEST.getReasonPhrase(),
                         ex.getMessage(),
@@ -59,7 +69,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException ex, ServerHttpRequest request) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ErrorResponse.of(
+                .body(errorResponse(
                         HttpStatus.BAD_REQUEST.value(),
                         HttpStatus.BAD_REQUEST.getReasonPhrase(),
                         ex.getMessage(),
@@ -74,7 +84,7 @@ public class GlobalExceptionHandler {
                 .toList();
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ErrorResponse.of(
+                .body(errorResponse(
                         HttpStatus.BAD_REQUEST.value(),
                         "Validation Failed",
                         "One or more validation errors occurred",
@@ -86,7 +96,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ServerWebInputException.class)
     public ResponseEntity<ErrorResponse> handleServerWebInput(ServerWebInputException ex, ServerHttpRequest request) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(ErrorResponse.of(
+                .body(errorResponse(
                         HttpStatus.BAD_REQUEST.value(),
                         "Bad Request",
                         ex.getReason() != null ? ex.getReason() : "Failed to read request body",
@@ -97,7 +107,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ConnectionCapacityException.class)
     public ResponseEntity<ErrorResponse> handleCapacityException(ConnectionCapacityException ex, ServerHttpRequest request) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(ErrorResponse.of(
+                .body(errorResponse(
                         HttpStatus.SERVICE_UNAVAILABLE.value(),
                         HttpStatus.SERVICE_UNAVAILABLE.getReasonPhrase(),
                         ex.getMessage(),
@@ -108,7 +118,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ExchangeConnectionException.class)
     public ResponseEntity<ErrorResponse> handleExchangeConnection(ExchangeConnectionException ex, ServerHttpRequest request) {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                .body(ErrorResponse.of(
+                .body(errorResponse(
                         HttpStatus.BAD_GATEWAY.value(),
                         HttpStatus.BAD_GATEWAY.getReasonPhrase(),
                         ex.getMessage(),
@@ -119,7 +129,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(org.springframework.web.reactive.resource.NoResourceFoundException.class)
     public ResponseEntity<ErrorResponse> handleNoResourceFound(org.springframework.web.reactive.resource.NoResourceFoundException ex, ServerHttpRequest request) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(ErrorResponse.of(
+                .body(errorResponse(
                         HttpStatus.NOT_FOUND.value(),
                         HttpStatus.NOT_FOUND.getReasonPhrase(),
                         ex.getReason() != null ? ex.getReason() : "Resource not found",
@@ -131,7 +141,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex, ServerHttpRequest request) {
         log.error("Unhandled exception processing request [{}]: ", request.getPath().value(), ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ErrorResponse.of(
+                .body(errorResponse(
                         HttpStatus.INTERNAL_SERVER_ERROR.value(),
                         HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase(),
                         "An unexpected internal error occurred",

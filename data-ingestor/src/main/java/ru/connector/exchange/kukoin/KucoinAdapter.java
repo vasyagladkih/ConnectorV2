@@ -1,9 +1,7 @@
 package ru.connector.exchange.kukoin;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
-import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
 import reactor.core.publisher.Flux;
@@ -15,10 +13,9 @@ import java.time.Duration;
 /**
  * Адаптер биржи KuCoin для обработки служебных сообщений (ping/pong, welcome, ack).
  */
-@Component
+@Slf4j
 public class KucoinAdapter implements ExchangeAdapter {
 
-    private static final Logger log = LoggerFactory.getLogger(KucoinAdapter.class);
     private static final int PING_INTERVAL = 18;
     private static final int MAX_SUBSCRIPTIONS = 100;
 
@@ -33,27 +30,6 @@ public class KucoinAdapter implements ExchangeAdapter {
         return Flux.interval(Duration.ofSeconds(PING_INTERVAL))
                 .map(seq -> session.textMessage("{\"id\":\"" + seq + "\",\"type\":\"ping\"}"));
     }
-
-    /*
-    @Override
-    public boolean isServiceMsg(DataBuffer buffer) {
-        // Проверяем первые байты без сдвига указателя чтения (readPosition),
-        // чтобы не испортить буфер для consumer
-        int readable = buffer.readableByteCount();
-        int checkLen = Math.min(readable, PREVIEW_MAX_BYTES);
-        byte[] preview = new byte[checkLen];
-        for (int i = 0; i < checkLen; i++) {
-            preview[i] = buffer.getByte(buffer.readPosition() + i);
-        }
-        String text = new String(preview, StandardCharsets.UTF_8);
-        return text.contains("\"type\":\"welcome\"")
-               || text.contains("\"type\":\"pong\"")
-               || text.contains("\"type\":\"ack\"")
-               || text.contains("\"type\":\"error\"")
-               || text.contains("\"welcome\"")
-               || text.contains("\"pong\"");
-    }
-    */
 
     @Override
     public boolean isServiceMsg(DataBuffer buffer) {

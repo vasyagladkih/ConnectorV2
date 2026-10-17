@@ -8,14 +8,14 @@ import org.springframework.web.reactive.socket.WebSocketHandler;
 import org.springframework.web.reactive.socket.client.WebSocketClient;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
-import ru.connector.api.dto.SubscriptionDto;
 import ru.connector.exceptions.ExchangeConnectionException;
 import ru.connector.exchange.kukoin.KucoinAdapter;
 import ru.connector.exchange.kukoin.KucoinManager;
-import ru.connector.models.Action;
 import ru.connector.models.Command;
-import ru.connector.models.MarketType;
-import ru.connector.models.Symbol;
+import ru.connector.models.SubscriptionDto;
+import ru.datacollector.common.model.Action;
+import ru.datacollector.common.model.MarketType;
+import ru.datacollector.common.model.Symbol;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -83,7 +83,7 @@ class BugReproductionTest {
     /**
      * Дефект 4: Рассинхронизация ID при отписке в KucoinManager / GroupPoolActor / ConnectionActor.
      * <p>
-     * Входные данные: SubscriptionDto с подпиской на SPOT BTC-USDT.
+     * Входные данные: CreateSubscriptionRequest с подпиской на SPOT BTC-USDT.
      * Механика:
      * - При подписке вызывается translate(sub, SUBSCRIBE), генерирующий id="X".
      * - ConnectionActor сохраняет в activeSubscriptions строку: {"id":"X", "action":"subscribe", ...}.

@@ -3,16 +3,15 @@ package ru.connector.exchange.kukoin;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.client.WebSocketClient;
 import reactor.core.publisher.Mono;
-import ru.connector.api.dto.SubscriptionDto;
-import ru.connector.api.dto.SubscriptionResponse;
 import ru.connector.exceptions.SubscriptionNotFoundException;
 import ru.connector.exchange.AbstractWebsocketManager;
 import ru.connector.exchange.actor.GroupPoolActor;
 import ru.connector.kafka.KafkaRawDataPublisher;
-import ru.connector.models.Action;
 import ru.connector.models.Command;
 import ru.connector.models.GroupKey;
-import ru.connector.models.StreamKey;
+import ru.connector.models.SubscriptionDto;
+import ru.datacollector.common.model.Action;
+import ru.datacollector.common.model.StreamKey;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
@@ -76,16 +75,9 @@ public class KucoinManager extends AbstractWebsocketManager {
     }
 
     @Override
-    public List<SubscriptionResponse> getAllActive() {
+    public List<SubscriptionDto> getAllActive() {
         return pools.values().stream()
                 .flatMap(pool -> pool.getAllActive().stream())
-                .map(req -> new SubscriptionResponse(
-                        StreamKey.from(req).toString(),
-                        req.exchange(),
-                        req.market(),
-                        req.symbol(),
-                        req.command()
-                ))
                 .toList();
     }
 
@@ -97,7 +89,7 @@ public class KucoinManager extends AbstractWebsocketManager {
 
     private KucoinOutgoingMsg resolveMsg(SubscriptionDto request, Action action) {
 
-        String id = Long.toString(StreamKey.from(request).hashCode() & 0xFFFFFFFFL);
+        String id = Long.toString(request.key().hashCode() & 0xFFFFFFFFL);
         String actionStr = KucoinRegistry.getAction(action);
         String marketType = KucoinRegistry.getMarketType(request.market());
         String symbol = KucoinRegistry.getSymbol(request.symbol(), request.market());
