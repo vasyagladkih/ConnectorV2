@@ -1,78 +1,31 @@
-name: Дефект / Баг-репорт
-description: Фиксация ошибки, утечки памяти или сбоя в архитектуре
+name: Баг-репорт
+description: Сообщение о дефекте
 title: "[BUG]: "
 labels: ["bug"]
 body:
-  - type: markdown
-    attributes:
-      value: |
-        Заполните форму для регистрации дефекта. Поля со звездочкой (*) обязательны к заполнению.
-
   - type: checkboxes
-    id: verified_by_author
+    id: verified
     attributes:
-      label: Верификация дефекта
-      description: Фиксация дефекта допустима только после эмпирического подтверждения.
+      label: Верификация
       options:
-        - label: Дефект лично проверен и подтвержден мной (не является неподтвержденной гипотезой нейросети)
+        - label: Баг проверен мной лично (не непроверенная гипотеза ИИ)
           required: true
 
   - type: dropdown
-    id: component
+    id: module
     attributes:
-      label: Затронутый модуль *
-      description: В каком модуле обнаружен дефект
+      label: Модуль
       options:
         - data-ingestor
         - control-plane
         - common
-        - infrastructure (docker/kafka)
-    validations:
-      required: true
-
-  - type: dropdown
-    id: severity
-    attributes:
-      label: Приоритет дефекта *
-      description: Уровень критичности проблемы
-      options:
-        - P0 (Критический: утечка памяти, падение процесса, потеря данных)
-        - P1 (Высокий: race condition, зависание, шторм ребаланса)
-        - P2 (Средний: технический долг, неоптимальный маппинг)
-    validations:
-      required: true
-
-  - type: input
-    id: class_ref
-    attributes:
-      label: Класс и строки кода
-      description: Например, ru.connector.exchange.actor.ConnectionActor:147-164
-      placeholder: Package.ClassName:L10-L20
-
-  - type: textarea
-    id: problem_description
-    attributes:
-      label: Описание механики дефекта *
-      description: Что именно работает неправильно и почему
-      placeholder: Опишите причину сбоя, стек-трейс или условия проявления...
     validations:
       required: true
 
   - type: textarea
-    id: expected_solution
+    id: description
     attributes:
-      label: Ожидаемое решение / Архитектурный фикс *
-      description: Что необходимо изменить в коде
-      placeholder: Добавить освобождение буфера, изолировать планировщик...
+      label: Что сломано и где
+      placeholder: Класс, строки, описание дефекта...
     validations:
       required: true
-
-  - type: checkboxes
-    id: dod
-    attributes:
-      label: Критерии готовности (Definition of Done) *
-      options:
-        - label: Написан воспроизводящий unit-тест (TDD)
-          required: true
-        - label: Тесты и gradle test завершаются с BUILD SUCCESSFUL
-          required: true

@@ -1,51 +1,23 @@
-name: Задача / Рефакторинг
-description: Плановая доработка, архитектурное изменение или внедрение функциональности
+name: Задача
+description: Доработка или изменение
 title: "[TASK]: "
 labels: ["task"]
 body:
-  - type: markdown
-    attributes:
-      value: |
-        Заполните форму для плановой задачи или рефакторинга. Поля со звездочкой (*) обязательны к заполнению.
-
   - type: dropdown
-    id: component
+    id: module
     attributes:
-      label: Затронутый модуль *
-      description: В каком модуле ведутся работы
+      label: Модуль
       options:
         - data-ingestor
         - control-plane
         - common
-        - infrastructure (docker/kafka)
     validations:
       required: true
 
   - type: textarea
-    id: task_goal
+    id: description
     attributes:
-      label: Цель задачи *
-      description: Какую задачу или архитектурную потребность решает изменение
-      placeholder: Опишите цель...
+      label: Что нужно сделать
+      placeholder: Описание задачи...
     validations:
       required: true
-
-  - type: textarea
-    id: subtasks
-    attributes:
-      label: Список подзадач
-      description: Пошаговый план реализации
-      value: |
-        - [ ] Шаг 1:
-        - [ ] Шаг 2:
-        - [ ] Шаг 3:
-
-  - type: checkboxes
-    id: dod
-    attributes:
-      label: Критерии готовности (Definition of Done) *
-      options:
-        - label: Код соответствует правилам архитектуры и соглашениям проекта
-          required: true
-        - label: Тесты и сборка gradle test завершаются с BUILD SUCCESSFUL
-          required: true
